@@ -25,13 +25,8 @@ D13-WiFi CS
 #include <Wire.h>     //I2C communication
 #include <SD.h>       //Access to SD card
 #include <RTCZero.h>  //realtimeclock on MKR Boards
-
-#include <WiFiNINA.h> //Wifi Chipset
-#define SPIWIFI       SPI  // The SPI port
-#define SPIWIFI_SS    13   // Chip select pin
-#define ESP32_RESETN  12   // Reset pin
-#define SPIWIFI_ACK   11   // a.k.a BUSY or READY pin
-#define ESP32_GPIO0   -1
+#include <WiFiNINA.h> //Wifi Chipset modified version from Adafruit
+#include <Adafruit_DotStar.h>
 
 //----- declaring variables ----------------------------------------------------
 //Current Version of the program
@@ -46,15 +41,13 @@ const char VERSION[9] = "05102020"; //obsolete with git?
 unsigned long DISPLAYtime; //placeholder, used to refresh display in certain intervals
 
 //Sensors
-const int sensor1 = 1;  //Nosepoke sensor integrated into door 1
-const int sensor2 = 0;  //IR door 2
-const int sensor3 = A2; //IR door 1
-const int sensor4 = A1; //IR middle
+const int sensor1 = A1; //IR door 1
+const int sensor2 = A0; //IR middle
+const int sensor3 = 10; //IR door 2
 
-volatile uint8_t sensor1_triggered = 0;     //interrupt flag
-volatile uint8_t sensor2_triggered = 0;
-/*volatile*/ uint8_t sensor3_triggered = 0; //(not interrupt)
-/*volatile*/ uint8_t sensor4_triggered = 0;
+/*volatile*/ uint8_t sensor1_triggered = 0;
+/*volatile*/ uint8_t sensor2_triggered = 0;
+/*volatile*/ uint8_t sensor3_triggered = 0;
 
 uint8_t IR_door1_buffer[10] = {};   //10 reads, every 50ms = 0.5s buffer length
 uint8_t IR_door2_buffer[10] = {};
@@ -65,12 +58,10 @@ uint8_t IR_door2_buffer_sum = 0;
 uint8_t IR_middle_buffer_sum = 0;
 unsigned long sensor234_time;       //time when IR sensors 2,3,4 were last checked
 
-//Speaker
-const int speaker1 = 2; //A3 on bench test (for now)
-
-//LED
-const uint8_t LED1 = 6;
+//LEDs
+const uint8_t LED1 = 2;
 volatile uint8_t ledstate = LOW;
+Adafruit_DotStar strip(1, 41, 40, DOTSTAR_BRG); //create dotstar object
 
 //SD
 const uint8_t SDcs = 4; //ChipSelect pin for SD (SPI)
@@ -80,14 +71,15 @@ File dataFile;          //create file object
 char ssid[] = "Buchhaim";           //network name
 char pass[] = "2416AdZk3881QPnh+";  //WPA key
 int status = WL_IDLE_STATUS;        //initialize for first check if wifi up
+#define SPIWIFI       SPI  // The SPI port
 
 //RTC - Real Time Clock
 const uint8_t GMT = 2;  //current timezone (Sommerzeit)
 RTCZero rtc;            //create rtc object
 
 //Door Modules
-const uint8_t door1 = 16;         //I2C address door module 1
-const uint8_t door2 = 17;         //I2C address door module 2
+const uint8_t door1 = 0x10;         //I2C address door module 1
+const uint8_t door2 = 0x11;         //I2C address door module 2
 
 uint8_t door1_open = 0;           //flag if door is open
 uint8_t door2_open = 0;
@@ -114,9 +106,6 @@ uint8_t tag1_present = 0;             //flag that indicates if tag was present d
 uint8_t tag2_present = 0;
 uint8_t reader1_cycle = 0;            //toggles flag if a read cycle has just happened (not automatically cleared)
 uint8_t reader2_cycle = 0;
-//uint8_t tag1_present_buffer[5] = {};  //holds tag presence from last 5 read cycles(could be optimized towards bitshifting)
-//uint8_t tag2_present_buffer[5] = {};
-//uint8_t tag2_present_buffer_sum = 0;  //holds count of successful tag reads within last 5 reads
 uint8_t currenttag1[6] = {};          //saves id of the tag that was read during the current read cycle
 uint8_t currenttag2[6] = {};
 uint8_t lasttag1[6] = {};             //saves id of the tag that was read during the previous read cycle
@@ -127,9 +116,6 @@ uint8_t RFIDmode = 1;           //select mode to operate in: 1-alternate, 2-read
 uint8_t RFIDmode_firstrun = 1;  //to make sure the correct reader is turned on/off
 
 //Experiment variables
-uint16_t nosepokes_needed;            //stores the amount of NP needed for the current NP-session
-uint16_t poke_counter = 0;            //number of pokes recorded in the current session
-unsigned long poke_timeout = 0;       //time when last poke happend, used to reset pokes after 3sec. and debounce
 //0 = no transition, 1 = origin door opened, 2 = origin door closed, 3 = checks mice present, 4 = target door closing
 uint8_t transition_to_tc = 0;         //track transition phase to target cage
 uint8_t transition_to_hc = 0;         //track transition phase to home cage
@@ -164,8 +150,6 @@ uint8_t update_current_mouse2 = 1;    //flag for updating current mouse at reade
 uint8_t current_mouse1 = 0;           //placeholder simple number for tag at reader 1
 uint8_t current_mouse2 = 0;           //placeholder simple number for tag at reader 2
 
-
-
 //##############################################################################
 //#####   U S E R   C O N F I G  ###############################################
 //##############################################################################
@@ -175,7 +159,7 @@ const uint8_t enable_wifi = 1;
 
 //if set to 1, the MoPSS will wait until a serial connection via USB is established
 //before continuing. Also prints what is written to uSD to Serial as well.
-const uint8_t is_testing = 0;
+const uint8_t is_testing = 1;
 
 //Experiment variables
 uint16_t nosepokes_needed_default = 8;    //number of NP currently needed, modified based on experiment (e.g. daily increase)
@@ -260,12 +244,16 @@ void setup()
   //----- DEBUGGING ------------------------------------------------------------
   pinMode(7,OUTPUT); //to allow port toggle for timing purposes
   
+  //Set up RGB LED on board, and turn it off -----------------------------------
+  strip.begin(); //Initialize pins for output
+  strip.show();  //Turn all LEDs off ASAP
+  
   //----- communication --------------------------------------------------------
   //start Serial communication
   Serial.begin(115200);
   if(is_testing == 1)
   {
-    //while(!Serial); //wait for serial connection
+    while(!Serial); //wait for serial connection
   }
   
   //start I2C
@@ -279,13 +267,12 @@ void setup()
   pinMode(sensor1,INPUT);
   pinMode(sensor2,INPUT);
   pinMode(sensor3,INPUT);
-  pinMode(sensor4,INPUT);
   
-  //attach interrupt to all pins (must not analogRead A1/A2 or else interrupt stops working!)
-  attachInterrupt(digitalPinToInterrupt(sensor1), sensor1_ISR, FALLING); //door leverpress
-  attachInterrupt(digitalPinToInterrupt(sensor2), sensor2_ISR, RISING);  //IR door 2 sensor
-  //attachInterrupt(digitalPinToInterrupt(sensor3), sensor3_ISR, RISING); //IR door 1 sensor
-  //attachInterrupt(digitalPinToInterrupt(sensor4), sensor4_ISR, RISING); //IR middle sensor
+  //attach interrupt to all pins (must not analogRead interruptpins or else interrupt stops working!)
+  //attachInterrupt(digitalPinToInterrupt(sensor1), sensor1_ISR, RISING); //IR door 1
+  //attachInterrupt(digitalPinToInterrupt(sensor2), sensor2_ISR, RISING);  //IR middle
+  //attachInterrupt(digitalPinToInterrupt(sensor3), sensor3_ISR, RISING);  //IR door 2
+
   
   //----- Speaker --------------------------------------------------------------
   pinMode(speaker1,OUTPUT);
@@ -302,7 +289,9 @@ void setup()
 		Serial.println("----- WiFi Setup -----"); // check if the WiFi module works
 		digitalWrite(LED1,HIGH); //turn on LED to show a connection attempt with wifi
     
-		if(WiFi.status() == WL_NO_SHIELD)
+    WiFi.setPins(13, 11, 12, -1, &SPIWIFI);
+    
+		if(WiFi.status() == WL_NO_MODULE)
     {
 			Serial.println("WiFi chip not working/disconnected, program stopped!");
 			criticalerror(); //don't continue
