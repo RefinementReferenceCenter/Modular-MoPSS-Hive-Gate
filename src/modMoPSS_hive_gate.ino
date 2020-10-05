@@ -24,11 +24,14 @@ D13-WiFi CS
 //------------------------------------------------------------------------------
 #include <Wire.h>     //I2C communication
 #include <SD.h>       //Access to SD card
-//#include <WiFiNINA.h> //Wifi Chipset
 #include <RTCZero.h>  //realtimeclock on MKR Boards
 
-#include "defines.h"
-#include <WiFiNINA_Generic.h>
+#include <WiFiNINA.h> //Wifi Chipset
+#define SPIWIFI       SPI  // The SPI port
+#define SPIWIFI_SS    13   // Chip select pin
+#define ESP32_RESETN  12   // Reset pin
+#define SPIWIFI_ACK   11   // a.k.a BUSY or READY pin
+#define ESP32_GPIO0   -1
 
 //----- declaring variables ----------------------------------------------------
 //Current Version of the program
