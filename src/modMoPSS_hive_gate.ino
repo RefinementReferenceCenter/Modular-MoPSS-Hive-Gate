@@ -139,8 +139,8 @@ uint8_t next_raise;           // when to raise threshold next time
 unsigned long rtccheck_time;  //time the rtc was checked last
 
 //Mice tags
-//uint8_t mice = 12; //TODO: use mice variable to automatically adjust several arrays
-const uint8_t mouse_library[13][6] = {
+const uint8_t mice = 13;  //number of mice in experiment (add 2 for test-mice, add 1 for mouse 0)
+const uint8_t mouse_library[mice][6] = {
   {0x00,0x00,0x00,0x00,0x00,0x00}, //mouse 0
   {0xC7,0x65,0xF7,0x90,0x2E,0xE1}, //mouse 1  8167 sw_we
   {0x80,0x68,0xF7,0x90,0x2E,0xE1}, //mouse 2  8864 sw_ge
@@ -177,7 +177,7 @@ const uint32_t warn_time =    60*60*24*1; //time after which a warning is logged
 const uint32_t exclude_time = 60*60*24*2; //time after which mouse is excluded
 
 //warning label 2 is handled automatically, DON'T SET!
-uint8_t mouse_participation[13] = { //0 = does not participate; 1 = regular participation; 2 = warning; 3 = excluded from experiment
+uint8_t mouse_participation[mice] = { //0 = does not participate; 1 = regular participation; 2 = warning; 3 = excluded from experiment
   1, //mouse 0
   1, //mouse 1  8167 sw_we
   1, //mouse 2  8864 sw_ge
@@ -195,7 +195,7 @@ uint8_t mouse_participation[13] = { //0 = does not participate; 1 = regular part
 //12 mice, 3 values. 0: started poke, 1: successfully poked, 2: seen at R2
 //if first value of last seen time is set to 0, starttime will be used
 //only set first value of each mouse, accepted input is time in unixtime format
-uint32_t mouse_last_seen[13] = {
+uint32_t mouse_last_seen[mice] = {
 0, //mouse 0 (ignored)
 0, //mouse 1  8167 sw_we
 0, //mouse 2  8864 sw_ge
@@ -409,7 +409,7 @@ void setup()
   starttime = rtc.getEpoch();
   
   //initialize last seen time with starttime unless provided in setup section
-  for(uint8_t i = 1; i < 13; i++) //exculde mouse 0 from time
+  for(uint8_t i = 1; i < mice; i++) //exculde mouse 0 from time
   {
     if(mouse_last_seen[i] == 0)
     {
@@ -607,7 +607,7 @@ void loop()
     
     //check current tag against library
     current_mouse2 = 0;
-    for(uint8_t h = 1; h < 13; h++) //iterate through all tags
+    for(uint8_t h = 1; h < mice; h++) //iterate through all tags
     {
       uint8_t tc = 0;
       for(uint8_t i = 0; i < sizeof(currenttag2); i++) //compare byte by byte
@@ -901,7 +901,7 @@ void loop()
     uint32_t rtc_now = rtc.getEpoch(); //~5.8ms
     
     //check if a mouse didn't visit the testcage -------------------------------
-    for(uint8_t i = 1; i < 13; i++)
+    for(uint8_t i = 1; i < mice; i++)
     {
       uint32_t time_since_R2 = rtc_now - mouse_last_seen[i];    //seen at R2
       
