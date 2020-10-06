@@ -1,5 +1,6 @@
 //------------------------------------------------------------------------------
-/* Adafruit ItsyBitsy M0 pin mapping:
+/*
+--- Adafruit ItsyBitsy M0 pin mapping ---
 
  A0-JP9
  A1-JP10
@@ -19,35 +20,45 @@ D11-WiFi Busy JP7
 D12-WiFi Reset JP6
 D13-WiFi CS
 
+--- Experimental Setup ---
+
+^^^^^^^\                                                     /^^^^^^^^
+       |                                                     |
+h c    |     |R|    |I| | D |    |I|    | D | |I|    |R|     |    t  c
+o a  ––|–––––|F|––––|R|–| O |––––|R|––––| O |–|R|––––|F|–––––|––  e  a
+m g    |     |I|    | | | O |    | |    | O | | |    |I|     |    s  g
+e e  ––|–––––|D|––––| |–| R |––––| |––––| R |–| |––––|D|–––––|––  t  e
+       |     |1|    |1| | 1 |    |3|    | 2 | |2|    |2|     |
+       |                                                     |
+_______/                  |----- 10cm ----|                  \________
+
 */
 
 //------------------------------------------------------------------------------
-#include <Wire.h>     //I2C communication
-#include <SD.h>       //Access to SD card
-#include <RTCZero.h>  //realtimeclock on MKR Boards
-#include <WiFiNINA.h> //Wifi Chipset modified version from Adafruit
-#include <Adafruit_DotStar.h>
+#include <Wire.h>             //I2C communication
+#include <SD.h>               //Access to SD card
+#include <RTCZero.h>          //realtimeclock on MKR Boards
+#include <WiFiNINA.h>         //Wifi Chipset modified version from Adafruit
+#include <Adafruit_DotStar.h> //controlling the onboard dotstar RGB LED
 
 //----- declaring variables ----------------------------------------------------
 //Current Version of the program
 //##############################################################################
 //##############################################################################
 const char VERSION[9] = "05102020"; //obsolete with git?
+const char HARDWARE_REV[] = "v2.0";
 //##############################################################################
 //##############################################################################
-
-//Display
-//TODO: Add Display (future)
-unsigned long DISPLAYtime; //placeholder, used to refresh display in certain intervals
 
 //Sensors
-const int sensor1 = A1; //IR door 1
-const int sensor2 = A0; //IR middle
-const int sensor3 = 10; //IR door 2
+const int sensor1 = A1; //IR 1 door 1
+const int sensor2 = A0; //IR 2 door 2
+const int sensor3 = 10; //IR 3 middle
 
-/*volatile*/ uint8_t sensor1_triggered = 0;
-/*volatile*/ uint8_t sensor2_triggered = 0;
-/*volatile*/ uint8_t sensor3_triggered = 0;
+//use volatile if interrupt based
+volatile uint8_t sensor1_triggered = 0;     //IR 1 door 1
+volatile uint8_t sensor2_triggered = 0;     //IR 2 door 2
+/*volatile*/ uint8_t sensor3_triggered = 0; //IR 3 middle
 
 uint8_t IR_door1_buffer[10] = {};   //10 reads, every 50ms = 0.5s buffer length
 uint8_t IR_door2_buffer[10] = {};
@@ -56,7 +67,7 @@ uint8_t sb = 0;                     //sensor buffer counter
 uint8_t IR_door1_buffer_sum = 0;    //holds count of IR triggers in the last 0.5s
 uint8_t IR_door2_buffer_sum = 0;
 uint8_t IR_middle_buffer_sum = 0;
-unsigned long sensor234_time;       //time when IR sensors 2,3,4 were last checked
+unsigned long IRsensor_time;       //time when IR sensors 1,2,3 were last checked
 
 //LEDs
 const uint8_t LED1 = 2;
@@ -162,28 +173,8 @@ const uint8_t enable_wifi = 1;
 const uint8_t is_testing = 1;
 
 //Experiment variables
-uint16_t nosepokes_needed_default = 8;    //number of NP currently needed, modified based on experiment (e.g. daily increase)
-uint16_t nosepokes_needed_low = 1;        //number of NP needed when mouse is excluded
-uint8_t automatic_raise = 1;              //set to 1 if threshold for door opening should be increased automatically
-uint8_t raise_day = 1;                    //after x days the threshold is raised (e.g., 3 -> on the 4th day, the threshold is raised)
-uint8_t raise_step = 2;                   //number of NP increased per timestep
 const uint32_t warn_time =    60*60*24*1; //time after which a warning is logged
 const uint32_t exclude_time = 60*60*24*2; //time after which mouse is excluded
-
-uint16_t mouse_nosepokes_needed[13] = { //array containing the required nosepokes per mouse
-  nosepokes_needed_default, //mouse 0 default on non-detection
-  nosepokes_needed_default, //mouse 1  8167 sw_we
-  nosepokes_needed_default, //mouse 2  8864 sw_ge
-  nosepokes_needed_default, //mouse 3  8533 sw_ro
-  nosepokes_needed_default, //mouse 4  9646 we_sw
-  nosepokes_needed_default, //mouse 5  1955 ge_sw
-  nosepokes_needed_default, //mouse 6  9096 ge_we
-  nosepokes_needed_default, //mouse 7  1588 ge_ro
-  nosepokes_needed_default, //mouse 8  8398 ro_sw
-  nosepokes_needed_default, //mouse 9  0619 ro_we
-  nosepokes_needed_default, //mouse 10 8086 ro_ge
-  1, //mouse 11 polymorphmaus
-  1}; //mouse 12 bleistiftmaus
 
 //warning label 2 is handled automatically, DON'T SET!
 uint8_t mouse_participation[13] = { //0 = does not participate; 1 = regular participation; 2 = warning; 3 = excluded from experiment
@@ -204,23 +195,20 @@ uint8_t mouse_participation[13] = { //0 = does not participate; 1 = regular part
 //12 mice, 3 values. 0: started poke, 1: successfully poked, 2: seen at R2
 //if first value of last seen time is set to 0, starttime will be used
 //only set first value of each mouse, accepted input is time in unixtime format
-uint32_t mouse_last_seen[13][3] = {
-{0,0,0}, //mouse 0 (ignored)
-{0,0,0}, //mouse 1  8167 sw_we
-{0,0,0}, //mouse 2  8864 sw_ge
-{0,0,0}, //mouse 3  8533 sw_ro
-{0,0,0}, //mouse 4  9646 we_sw
-{0,0,0}, //mouse 5  1955 ge_sw
-{0,0,0}, //mouse 6  9096 ge_we
-{0,0,0}, //mouse 7  1588 ge_ro
-{0,0,0}, //mouse 8  8398 ro_sw
-{0,0,0}, //mouse 9  0619 ro_we
-{0,0,0}, //mouse 10 8086 ro_ge
-{0,0,0}, //mouse 11 polymorphmaus
-{0,0,0}}; //mouse 12 bleistiftmaus
-
-const uint16_t tone_frequency = 12000;  //hertz
-const uint16_t tone_duration = 300;     //milliseconds
+uint32_t mouse_last_seen[13] = {
+0, //mouse 0 (ignored)
+0, //mouse 1  8167 sw_we
+0, //mouse 2  8864 sw_ge
+0, //mouse 3  8533 sw_ro
+0, //mouse 4  9646 we_sw
+0, //mouse 5  1955 ge_sw
+0, //mouse 6  9096 ge_we
+0, //mouse 7  1588 ge_ro
+0, //mouse 8  8398 ro_sw
+0, //mouse 9  0619 ro_we
+0, //mouse 10 8086 ro_ge
+0, //mouse 11 polymorphmaus
+0}; //mouse 12 bleistiftmaus
 
 //door management
 const uint16_t door1_needed_rotation = 4700;  //3200 = 1 revolution
@@ -264,18 +252,14 @@ void setup()
   
   //----- Sensors --------------------------------------------------------------
   //setup input mode for pins (redundant, for clarity)
-  pinMode(sensor1,INPUT);
-  pinMode(sensor2,INPUT);
-  pinMode(sensor3,INPUT);
+  pinMode(sensor1,INPUT); //IR 1 door 1
+  pinMode(sensor2,INPUT); //IR 2 door 2
+  pinMode(sensor3,INPUT); //IR 3 middle
   
   //attach interrupt to all pins (must not analogRead interruptpins or else interrupt stops working!)
-  //attachInterrupt(digitalPinToInterrupt(sensor1), sensor1_ISR, RISING); //IR door 1
-  //attachInterrupt(digitalPinToInterrupt(sensor2), sensor2_ISR, RISING);  //IR middle
-  //attachInterrupt(digitalPinToInterrupt(sensor3), sensor3_ISR, RISING);  //IR door 2
-
-  
-  //----- Speaker --------------------------------------------------------------
-  pinMode(speaker1,OUTPUT);
+  attachInterrupt(digitalPinToInterrupt(sensor1), sensor1_ISR, RISING); //IR 1 door 1
+  attachInterrupt(digitalPinToInterrupt(sensor2), sensor2_ISR, RISING); //IR 2 middle
+  //attachInterrupt(digitalPinToInterrupt(sensor3), sensor3_ISR, RISING); //IR 3 door 2
   
   //----- Doors ----------------------------------------------------------------
   rotate(door1, door1_reset_up, 1, door1_speed);    //open door too much
@@ -427,17 +411,10 @@ void setup()
   //initialize last seen time with starttime unless provided in setup section
   for(uint8_t i = 1; i < 13; i++) //exculde mouse 0 from time
   {
-    if(mouse_last_seen[i][0] == 0)
+    if(mouse_last_seen[i] == 0)
     {
-      mouse_last_seen[i][0] = starttime;
+      mouse_last_seen[i] = starttime;
     }
-  }
-  
-  //use one value to initalize all three last seen times
-  for(uint8_t i = 1; i < 13; i++) //exculde mouse 0 from time
-  {
-    mouse_last_seen[i][1] = mouse_last_seen[i][0];
-    mouse_last_seen[i][2] = mouse_last_seen[i][0];
   }
   
 } //end of setup
@@ -650,22 +627,23 @@ void loop()
         break;  //stop looking after first match
       }
     }
-    mouse_last_seen[current_mouse2][2] = rtc.getEpoch();
+    mouse_last_seen[current_mouse2] = rtc.getEpoch();
   }
   
   //----------------------------------------------------------------------------
-  //read IR sensors 2+3+4 periodically -----------------------------------------
+  //read IR sensors 1+2+3 periodically -----------------------------------------
   //----------------------------------------------------------------------------
-  if((millis() - sensor234_time) >= 50)
+  if((millis() - IRsensor_time) >= 50)
   {
-    sensor234_time = millis();
+    IRsensor_time = millis();
     
     //write sensor Value to buffer
-    sensor3_triggered = digitalRead(sensor3); //not triggered by interrupt
-    sensor4_triggered = digitalRead(sensor4); //not triggered by interrupt
-    IR_door1_buffer[sb] = sensor3_triggered;
-    IR_door2_buffer[sb] = digitalRead(sensor2); //triggered by interrupt, read here
-    IR_middle_buffer[sb] = sensor4_triggered;
+    sensor3_triggered = digitalRead(sensor3); //not triggered by interrupt, set flag here
+  
+    IR_door1_buffer[sb] = digitalRead(sensor1); //triggered by interrupt, read here as well
+    IR_door2_buffer[sb] = digitalRead(sensor2); //triggered by interrupt, read here as well
+    IR_middle_buffer[sb] = sensor3_triggered;
+    
     //count up buffer position, start again at 0 if end of array is reached
     sb++;
     if(sb > 9)
@@ -688,112 +666,41 @@ void loop()
   //----------------------------------------------------------------------------
   //manage transitions ---------------------------------------------------------
   //----------------------------------------------------------------------------
-  if(sensor1_triggered)
+  if(sensor1_triggered || (transition_to_hc == 3))
   {
     sensor1_triggered = 0; //flag needs to be cleared (every time)
-    //count pokes only when allowed
+    
     if(!door1_open && !door1_moving && !door2_open && !door2_moving && //all closed and not moving
-      (transition_to_hc == 0) && (transition_to_tc == 0) && (IR_middle_buffer_sum == 0)) //not transitioning, middle empty (to allow failsafe to trigger)
+      (transition_to_tc == 0) && //not in transition towards testcage
+      (((transition_to_hc == 0) && (IR_middle_buffer_sum == 0)) || (transition_to_hc == 3))) //not transitioning to hc and middle must be empty OR already transitioning to hc
     {
-      //limit minimum time between pokes to debounce noisy switch (1poke/100ms)
-      if((millis() - poke_timeout) >= 100)
+      //----- door management
+      if(door1_counter >= 50)
       {
-        //make tone and create datastring only if poke is correctly counted
-        tone(speaker1, tone_frequency, tone_duration); //pin, freq., duration ms
-        poke_timeout = millis(); //save time when poke happened, to time out
-        poke_counter++; //increment
-        SENSORDataString = createSENSORDataString("NP", String(poke_counter), SENSORDataString); //generate datastring
+        rotate1_duration = rotate(door1, door1_reset_up, 1, door1_speed); //open door too much
+        SENSORDataString = createSENSORDataString("D1", "Opening_reset", SENSORDataString); //generate datastring
+        door1_counter = 0;
+        door1_reset = 1;
       }
-    }
-  }
-  
-  //if a poke has occured, fetch the first tag that shows up and assign it to this poke-session
-  if((poke_counter > 0) && update_current_mouse1 && tag1_present)
-  {
-    update_current_mouse1 = 0;  //toggle flag, don't update current_mouse until new nosepoke-session
-    
-    //----- decode tag and assign correct number of NP needed ------------------
-    current_mouse1 = 0; //reset from last detected mouse
-    
-    //check current tag against mouse_library
-    for(uint8_t h = 1; h < 13; h++) //iterate through all tags
-    {
-      uint8_t tc = 0;
-      for(uint8_t i = 0; i < sizeof(currenttag1); i++) //compare byte by byte
+      else
       {
-        if(currenttag1[i] == mouse_library[h][i])
-        {
-          tc++;
-        }
-        else
-        {
-          break; //stop comparing current tag at first mismatch
-        }
+        rotate1_duration = rotate(door1, door1_needed_rotation, 1, door1_speed); //open door too much
+        SENSORDataString = createSENSORDataString("D1", "Opening", SENSORDataString); //generate datastring
+        door1_counter++;
       }
-      if(tc == 6) //if all 6 bytes are identical, matching tag found
+      
+      door1_time = millis();
+      door1_moving = 1; //set flag, door is opening
+      
+      //----- transition management
+      if(transition_to_hc == 0) //only start transition to tc if not on its way back (transtioin to hc)
       {
-        current_mouse1 = h; //assign detected mouse to variable, mouse 0 is no detection
-        break;  //stop looking after first match
+        transition_to_tc = 1; //phase 1 origin door opening
       }
-    }
-    nosepokes_needed = mouse_nosepokes_needed[current_mouse1]; //adjust nosepokes_needed based on tag
-  }
-
-  //if no poke has occured within x seconds of the last poke, reset timer (session)
-  if((poke_counter > 0) && ((millis() - poke_timeout) >= 3000))
-  {
-    poke_counter = 0; //reset poke_counter
-    
-    //----- NP management
-    update_current_mouse1 = 1; //reset flag to allow update of poketag
-    //reset nosepokes_needed to default, in case a mouse with a low nosepoke_needed count leaves,
-    //and a new mouse is fast enough to poke (before being read) before nosepoke_needed can be adjusted accordingly
-    nosepokes_needed = mouse_nosepokes_needed[0];
-    if(current_mouse1) //log time of last attempted poke on timeout, if mouse was detected (could also log last time a mouse was not detected...)
-    {
-      mouse_last_seen[current_mouse1][0] = rtc.getEpoch(); //TODO: think and remove
-    }
-  }
-  
-  //DOOR 1 OPENING
-  if(!door1_open && !door1_moving && !door2_open && !door2_moving && //all closed and not moving
-    ((poke_counter >= nosepokes_needed) || (transition_to_hc == 3))) //enough pokes OR transitioning to homecage
-  {
-    //----- door management
-    if(door1_counter >= 50)
-    {
-      rotate1_duration = rotate(door1, door1_reset_up, 1, door1_speed); //open door too much
-      SENSORDataString = createSENSORDataString("D1", "Opening_reset", SENSORDataString); //generate datastring
-      door1_counter = 0;
-      door1_reset = 1;
-    }
-    else
-    {
-      rotate1_duration = rotate(door1, door1_needed_rotation, 1, door1_speed); //open door too much
-      SENSORDataString = createSENSORDataString("D1", "Opening", SENSORDataString); //generate datastring
-      door1_counter++;
-    }
-    
-    door1_time = millis();
-    door1_moving = 1; //set flag, door is opening
-    poke_counter = 0; //reset poke_counter
-    
-    //----- NP management
-    update_current_mouse1 = 1; //reset flag to allow update of current mouse
-    nosepokes_needed = nosepokes_needed_default; //reset nosepokes_needed or else the last mouses nosepokes_needed will stick
-    if(current_mouse1) //log time of last successful poking, if mouse was detected
-    {
-      mouse_last_seen[current_mouse1][1] = rtc.getEpoch();
-    }
-    
-    //----- transition management
-    if(transition_to_hc == 0) //only start transition to tc if not on its way back (transtioin to hc)
-    {
-      transition_to_tc = 1; //phase 1 origin door opening
-    }
-    if(transition_to_hc == 3)
-    {
-      transition_to_hc = 4; //phase 4 target door opening/open
+      if(transition_to_hc == 3)
+      {
+        transition_to_hc = 4; //phase 4 target door opening/open
+      }
     }
   }
   
@@ -892,7 +799,7 @@ void loop()
     sensor2_triggered = 0; //flag needs to be cleared (every time)
     
     if(!door2_open && !door2_moving && !door1_moving && !door1_open && //all closed and not moving
-      (poke_counter == 0) && (transition_to_hc == 0) && //no reservation from pending nosepokes and not transitioning to homecage
+      (transition_to_hc == 0) && //not transitioning to homecage
       (((transition_to_tc == 0) && (IR_middle_buffer_sum == 0)) || (transition_to_tc == 3))) //not transitioning to tc and middle must be empty OR already transitioning to tc
     {
       //----- transition management
@@ -993,94 +900,27 @@ void loop()
     rtccheck_time = millis();
     uint32_t rtc_now = rtc.getEpoch(); //~5.8ms
     
-    //check if a mouse stopped poking and/or didn't visit testcage -------------
+    //check if a mouse didn't visit the testcage -------------------------------
     for(uint8_t i = 1; i < 13; i++)
     {
-      uint32_t time_since_door = rtc_now - mouse_last_seen[i][1];  //door opened
-      uint32_t time_since_R2 = rtc_now - mouse_last_seen[i][2];    //seen at R2
+      uint32_t time_since_R2 = rtc_now - mouse_last_seen[i];    //seen at R2
       
       //remove warning flag when participating again
-      if((time_since_door < warn_time) && (time_since_R2 < warn_time) && (mouse_participation[i] == 2))
+      if((time_since_R2 < warn_time) && (mouse_participation[i] == 2))
       {
         mouse_participation[i] = 1; //reset mouse warning flag
         SENSORDataString = createSENSORDataString("Mr", String(i), SENSORDataString); //Mr = mouse re-participation
       }
       
       //add warning to log on low participation
-      if((time_since_door >= warn_time) && (mouse_participation[i] == 1))
-      {
-        mouse_participation[i] = 2; //mouse warning, low participation
-        SENSORDataString = createSENSORDataString("MwD", String(i), SENSORDataString); //Mw = mouse warning
-      }
       if((time_since_R2 >= warn_time) && (mouse_participation[i] == 1))
       {
         mouse_participation[i] = 2; //mouse warning, low participation
         SENSORDataString = createSENSORDataString("MwR", String(i), SENSORDataString); //Mw = mouse warning
       }
-      
-      //exclude mice from experiment exclude after 24h further
-      if((time_since_door >= exclude_time) && ((mouse_participation[i] == 1) || (mouse_participation[i] == 2)))
-      {
-        mouse_nosepokes_needed[i] = nosepokes_needed_low; //set nosepokes needed to low value
-        mouse_participation[i] = 3; //exclude mouse from experiment
-        SENSORDataString = createSENSORDataString("MxD", String(i), SENSORDataString); //Mx = mouse excluded
-        //blink LED?
-      }
-      if((time_since_R2 >= exclude_time) && ((mouse_participation[i] == 1) || (mouse_participation[i] == 2)))
-      {
-        mouse_nosepokes_needed[i] = nosepokes_needed_low; //set nosepokes needed to low value
-        mouse_participation[i] = 3; //exclude mouse from experiment
-        SENSORDataString = createSENSORDataString("MxR", String(i), SENSORDataString); //Mx = mouse excluded
-      }
-    }
-    
-    //automatically raise nosepokes_needed_default -----------------------------
-    if(automatic_raise)
-    {
-      //if(rtc_now >= starttime+(day*60*60*24)) // if one day has passed
-      if(rtc.getEpoch() >= starttime+(day*60*60*24)) // for testing: every minute
-      {
-        if(day == 1)
-        {
-          next_raise = day + raise_day;  // when is next raise going to take place
-        }
-        day++;                           // start next day
-        
-        if(day >= next_raise)            // raise necessary?
-        {
-          nosepokes_needed_default = nosepokes_needed_default + raise_step;  // raise threshold
-          next_raise = day + raise_day; // when is next raise going to take place
-          
-          //adjust number of NP for mice that are still participating
-          for(uint8_t i = 0;i < 13;i++)
-          {
-            if((mouse_participation[i] == 1) || (mouse_participation[i] == 2))
-              {
-                mouse_nosepokes_needed[i] = nosepokes_needed_default;
-              }
-          }
-          //for the very rare case that NP needed default has increased, and a mouse whose tag is not recognized starts poking to success,
-          //the mouse will still get the old nosepokes_needed value. On NP timeout/tag detection, NP default is adjusted correctly
-          if(poke_counter == 0) //only adjust nosepokes_needed if no poking is currently happening
-          {
-            nosepokes_needed = mouse_nosepokes_needed[0];
-          }
-          
-          //create log entry, threshold was raised to x nosepokes
-          SENSORDataString = createSENSORDataString("NP raised", String(nosepokes_needed_default), SENSORDataString); //generate datastring
-        }
-      }
     }
     
   }
-  
-  //display stuff --------------------------------------------------------------
-  // if((millis() - DISPLAYtime) >= 500)
-  // {
-  //   DISPLAYtime = millis();
-  //   //---------------------
-  //
-  // }
   
   //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 	//write Data to log files ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1191,10 +1031,6 @@ void sensor2_ISR()
 void sensor3_ISR()
 {
   sensor3_triggered = 1;
-}
-void sensor4_ISR()
-{
-  sensor4_triggered = 1;
 }
 
 //RFID tag realted functions ---------------------------------------------------
@@ -1484,3 +1320,31 @@ void criticalerror()
 }
 
 //--- STUFF
+/*
+//check current tag against mouse_library
+for(uint8_t h = 1; h < 13; h++) //iterate through all tags
+{
+  uint8_t tc = 0;
+  for(uint8_t i = 0; i < sizeof(currenttag1); i++) //compare byte by byte
+  {
+    if(currenttag1[i] == mouse_library[h][i])
+    {
+      tc++;
+    }
+    else
+    {
+      break; //stop comparing current tag at first mismatch
+    }
+  }
+  if(tc == 6) //if all 6 bytes are identical, matching tag found
+  {
+    current_mouse1 = h; //assign detected mouse to variable, mouse 0 is no detection
+    break;  //stop looking after first match
+  }
+}
+
+if(current_mouse1) //log time of last attempted poke on timeout, if mouse was detected (could also log last time a mouse was not detected...)
+{
+  mouse_last_seen[current_mouse1][0] = rtc.getEpoch(); //TODO: think and remove
+}
+*/
