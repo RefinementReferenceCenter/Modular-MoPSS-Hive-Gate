@@ -2,23 +2,23 @@
 /*
 --- Adafruit ItsyBitsy M0 pin mapping ---
 
- A0-JP9
- A1-JP10
- A2-JP2
- A3-JP3
- A4-JP4
- A5-JP5
+ A0- [JP 9] IR 2 door 2
+ A1- [JP10] IR 1 door 1
+ A2- [JP 2]
+ A3- [JP 3]
+ A4- [JP 4]
+ A5- [JP 5]
 
  D2-
  D3-
- D4-SD chip select
+ D4- SD chip select
  D5-
  D7-
  D9-
-D10-JP8
-D11-WiFi Busy JP7
-D12-WiFi Reset JP6
-D13-WiFi CS
+D10- [JP 8] IR 3 middle
+D11- [JP 7] WiFi Busy
+D12- [JP 6] WiFi Reset
+D13- WiFi CS
 
 --- Experimental Setup ---
 
@@ -241,11 +241,13 @@ void setup()
   Serial.begin(115200);
   if(is_testing == 1)
   {
-    while(!Serial); //wait for serial connection
+    //while(!Serial); //wait for serial connection
   }
   
   //start I2C
   Wire.begin(); //atsamd can't multimaster
+  
+  
   //disable RFID readers and wait until they acknowledge
   disableReader(reader1);
   disableReader(reader2);
@@ -296,28 +298,37 @@ void setup()
 
       //wait 10 seconds for each connection attempt and slowly blink LED:
       delay(2000);
-      digitalWrite(LED1,LOW);
+      strip.setPixelColor(0,0,0,0);
+      strip.show();
       delay(500);
-      digitalWrite(LED1,HIGH);
+      strip.setPixelColor(0,255,255,255);
+      strip.show();
       delay(2000);
-      digitalWrite(LED1,LOW);
+      strip.setPixelColor(0,0,0,0);
+      strip.show();
       delay(500);
-      digitalWrite(LED1,HIGH);
+      strip.setPixelColor(0,255,255,255);
+      strip.show();
       delay(2000);
-      digitalWrite(LED1,LOW);
+      strip.setPixelColor(0,0,0,0);
+      strip.show();
       delay(500);
-      digitalWrite(LED1,HIGH);
+      strip.setPixelColor(0,255,255,255);
+      strip.show();
       delay(2000);
-      digitalWrite(LED1,LOW);
+      strip.setPixelColor(0,0,0,0);
+      strip.show();
       delay(500);
-      digitalWrite(LED1,HIGH);
+      strip.setPixelColor(0,255,255,255);
+      strip.show();
     }
     Serial.println("Successfully connected!");
     
     //----- Real Time Clock ------------------------------------------------------
     Serial.println("----- RTC Setup -----");
     
-    digitalWrite(LED1,HIGH); //turn on LED
+    strip.setPixelColor(0,255,255,255);
+    strip.show();
     
     rtc.begin();
     unsigned long epoch = 0; //stores the time in seconds since beginning
@@ -331,9 +342,11 @@ void setup()
       Serial.println(numberOfTries);
       numberOfTries++;
       delay(500);
-      digitalWrite(LED1,LOW);
+      strip.setPixelColor(0,0,0,0);
+      strip.show();
       delay(500);
-      digitalWrite(LED1,HIGH);
+      strip.setPixelColor(0,255,255,255);
+      strip.show();
 
       epoch = WiFi.getTime();
     }
@@ -343,7 +356,8 @@ void setup()
     Serial.print("Success! Time received: ");
     Serial.println(nicetime());
     
-    digitalWrite(LED1,LOW); //turn off LED
+    strip.setPixelColor(0,0,0,0);
+    strip.show();
     
     //disable wifi module after fetching time to conserve power (~83mA)
     WiFi.end();
@@ -1277,43 +1291,61 @@ void criticalerror()
 {
   while(1)
   {
-    digitalWrite(LED1,HIGH);
+    strip.setPixelColor(0,255,0,0);
+    strip.show();
     delay(100);
-    digitalWrite(LED1,LOW);
+    strip.setPixelColor(0,0,0,0);
+    strip.show();
     delay(100);
-    digitalWrite(LED1,HIGH);
+    strip.setPixelColor(0,255,0,0);
+    strip.show();
     delay(100);
-    digitalWrite(LED1,LOW);
+    strip.setPixelColor(0,0,0,0);
+    strip.show();
     delay(100);
-    digitalWrite(LED1,HIGH);
+    strip.setPixelColor(0,255,0,0);
+    strip.show();
     delay(100);
-    digitalWrite(LED1,LOW);
-    delay(100);
-    
-    digitalWrite(LED1,HIGH);
-    delay(300);
-    digitalWrite(LED1,LOW);
-    delay(100);
-    digitalWrite(LED1,HIGH);
-    delay(300);
-    digitalWrite(LED1,LOW);
-    delay(100);
-    digitalWrite(LED1,HIGH);
-    delay(300);
-    digitalWrite(LED1,LOW);
+    strip.setPixelColor(0,0,0,0);
+    strip.show();
     delay(100);
     
-    digitalWrite(LED1,HIGH);
+    strip.setPixelColor(0,255,0,0);
+    strip.show();
+    delay(300);
+    strip.setPixelColor(0,0,0,0);
+    strip.show();
     delay(100);
-    digitalWrite(LED1,LOW);
+    strip.setPixelColor(0,255,0,0);
+    strip.show();
+    delay(300);
+    strip.setPixelColor(0,0,0,0);
+    strip.show();
     delay(100);
-    digitalWrite(LED1,HIGH);
+    strip.setPixelColor(0,255,0,0);
+    strip.show();
+    delay(300);
+    strip.setPixelColor(0,0,0,0);
+    strip.show();
     delay(100);
-    digitalWrite(LED1,LOW);
+    
+    strip.setPixelColor(0,255,0,0);
+    strip.show();
     delay(100);
-    digitalWrite(LED1,HIGH);
+    strip.setPixelColor(0,0,0,0);
+    strip.show();
     delay(100);
-    digitalWrite(LED1,LOW);
+    strip.setPixelColor(0,255,0,0);
+    strip.show();
+    delay(100);
+    strip.setPixelColor(0,0,0,0);
+    strip.show();
+    delay(100);
+    strip.setPixelColor(0,255,0,0);
+    strip.show();
+    delay(100);
+    strip.setPixelColor(0,0,0,0);
+    strip.show();
     delay(500);
     
   }
