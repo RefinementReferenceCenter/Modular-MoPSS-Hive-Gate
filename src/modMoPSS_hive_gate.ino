@@ -132,6 +132,7 @@ uint8_t transition_to_tc = 0;         //track transition phase to target cage
 uint8_t transition_to_hc = 0;         //track transition phase to home cage
 unsigned long transition_time = 0;    //time when both doors are closed, when mouse is in the middle
 uint8_t failsafe = 0;                 //flag if failsafe is triggered (ONLY FOR TRAINING PHASE 2)
+uint8_t tc_empty = 1;                 //flag that allows a transition into the test cage
 
 uint16_t day = 1;             // counts days, necessary to raise nosepokes_needed
 unsigned long starttime;      // start of programm, necessary to raise nosepokes_needed
@@ -139,21 +140,23 @@ uint8_t next_raise;           // when to raise threshold next time
 unsigned long rtccheck_time;  //time the rtc was checked last
 
 //Mice tags
-const uint8_t mice = 13;  //number of mice in experiment (add 2 for test-mice, add 1 for mouse 0)
+const uint8_t mice = 15;  //number of mice in experiment (add 2 for test-mice, add 1 for mouse 0)
 const uint8_t mouse_library[mice][6] = {
   {0x00,0x00,0x00,0x00,0x00,0x00}, //mouse 0
-  {0xC7,0x65,0xF7,0x90,0x2E,0xE1}, //mouse 1  8167 sw_we
-  {0x80,0x68,0xF7,0x90,0x2E,0xE1}, //mouse 2  8864 sw_ge
-  {0x35,0x67,0xF7,0x90,0x2E,0xE1}, //mouse 3  8533 sw_ro
-  {0x8E,0x6B,0xF7,0x90,0x2E,0xE1}, //mouse 4  9646 we_sw
-  {0x93,0x74,0xF7,0x90,0x2E,0xE1}, //mouse 5  1955 ge_sw
-  {0x68,0x69,0xF7,0x90,0x2E,0xE1}, //mouse 6  9096 ge_we
-  {0x24,0x73,0xF7,0x90,0x2E,0xE1}, //mouse 7  1588 ge_ro
-  {0xAE,0x66,0xF7,0x90,0x2E,0xE1}, //mouse 8  8398 ro_sw
-  {0x5B,0x6F,0xF7,0x90,0x2E,0xE1}, //mouse 9  0619 ro_we
-  {0x76,0x65,0xF7,0x90,0x2E,0xE1}, //mouse 10 8086 ro_ge
-  {0xA1,0x82,0x42,0xDD,0x3E,0xF3}, //mouse 11 polymorphmaus
-  {0x0E,0x67,0xF7,0x90,0x2E,0xE1}  //mouse 12 bleistiftmaus
+  {0x73,0x74,0xF7,0x90,0x2E,0xE1}, //mouse 1  sw_si
+  {0x7F,0x65,0x7F,0x90,0x2E,0xE1}, //mouse 2  ro_ge
+  {0x40,0x73,0x7F,0x90,0x2E,0xE1}, //mouse 3  sw_ro
+  {0x32,0x74,0x7F,0x90,0x2E,0xE1}, //mouse 4  we_sw
+  {0xB8,0x74,0x7F,0x90,0x2E,0xE1}, //mouse 5  ro_we
+  {0x18,0x6E,0x7F,0x90,0x2E,0xE1}, //mouse 6  sw_ge
+  {0xAA,0x71,0x7F,0x90,0x2E,0xE1}, //mouse 7  we_si
+  {0x6B,0x6E,0x7F,0x90,0x2E,0xE1}, //mouse 8  ro_si
+  {0x0F,0x71,0x7F,0x90,0x2E,0xE1}, //mouse 9  sw_we
+  {0x77,0x6F,0x7F,0x90,0x2E,0xE1}, //mouse 10 we_ge
+  {0x91,0x64,0x7F,0x90,0x2E,0xE1}, //mouse 11 ro_sw
+  {0x41,0x73,0x7F,0x90,0x2E,0xE1}, //mouse 12 we_ro
+  {0xA1,0x82,0x42,0xDD,0x3E,0xF3}, //mouse 13 polymorphmaus
+  {0x0E,0x67,0xF7,0x90,0x2E,0xE1}  //mouse 14 bleistiftmaus
 };
 
 uint8_t update_current_mouse1 = 1;    //flag for updating current mouse at reader 1
@@ -166,7 +169,7 @@ uint8_t current_mouse2 = 0;           //placeholder simple number for tag at rea
 //##############################################################################
 
 //if set to 1, the MoPSS will wait for a wifi connection and synchronization with network time before continuing
-const uint8_t enable_wifi = 1;
+const uint8_t enable_wifi = 0;
 
 //if set to 1, the MoPSS will wait until a serial connection via USB is established
 //before continuing. Also prints what is written to uSD to Serial as well.
@@ -179,49 +182,53 @@ const uint32_t exclude_time = 60*60*24*2; //time after which mouse is excluded
 //warning label 2 is handled automatically, DON'T SET!
 uint8_t mouse_participation[mice] = { //0 = does not participate; 1 = regular participation; 2 = warning; 3 = excluded from experiment
   1, //mouse 0
-  1, //mouse 1  8167 sw_we
-  1, //mouse 2  8864 sw_ge
-  1, //mouse 3  8533 sw_ro
-  1, //mouse 4  9646 we_sw
-  1, //mouse 5  1955 ge_sw
-  1, //mouse 6  9096 ge_we
-  1, //mouse 7  1588 ge_ro
-  1, //mouse 8  8398 ro_sw
-  1, //mouse 9  0619 ro_we
-  1, //mouse 10 8086 ro_ge
-  1, //mouse 11 polymorphmaus
-  1}; //mouse 12 bleistiftmaus
+  1, //mouse 1  sw_si
+  1, //mouse 2  ro_ge
+  1, //mouse 3  sw_ro
+  1, //mouse 4  we_sw
+  1, //mouse 5  ro_we
+  1, //mouse 6  sw_ge
+  1, //mouse 7  we_si
+  1, //mouse 8  ro_si
+  1, //mouse 9  sw_we
+  1, //mouse 10 we_ge
+  1, //mouse 11 ro_sw
+  1, //mouse 12 we_ro
+  1, //mouse 13 polymorphmaus
+  1}; //mouse 14 bleistiftmaus
 
 //12 mice, 3 values. 0: started poke, 1: successfully poked, 2: seen at R2
 //if first value of last seen time is set to 0, starttime will be used
 //only set first value of each mouse, accepted input is time in unixtime format
 uint32_t mouse_last_seen[mice] = {
-0, //mouse 0 (ignored)
-0, //mouse 1  8167 sw_we
-0, //mouse 2  8864 sw_ge
-0, //mouse 3  8533 sw_ro
-0, //mouse 4  9646 we_sw
-0, //mouse 5  1955 ge_sw
-0, //mouse 6  9096 ge_we
-0, //mouse 7  1588 ge_ro
-0, //mouse 8  8398 ro_sw
-0, //mouse 9  0619 ro_we
-0, //mouse 10 8086 ro_ge
-0, //mouse 11 polymorphmaus
-0}; //mouse 12 bleistiftmaus
+  0, //mouse 0
+  0, //mouse 1  sw_si
+  0, //mouse 2  ro_ge
+  0, //mouse 3  sw_ro
+  0, //mouse 4  we_sw
+  0, //mouse 5  ro_we
+  0, //mouse 6  sw_ge
+  0, //mouse 7  we_si
+  0, //mouse 8  ro_si
+  0, //mouse 9  sw_we
+  0, //mouse 10 we_ge
+  0, //mouse 11 ro_sw
+  0, //mouse 12 we_ro
+  0, //mouse 13 polymorphmaus
+  0}; //mouse 14 bleistiftmaus
 
 //door management
-const uint16_t door1_needed_rotation = 4700;  //3200 = 1 revolution
+const uint16_t door1_needed_rotation = 4000;  //3200 = 1 revolution
 const uint16_t door2_needed_rotation = 4000;
 const uint16_t door1_stays_open_min = 500;    //minimum open time
 const uint16_t door2_stays_open_min = 500;
 const uint16_t door1_stays_open_max = 10000;  //maximum open time
 const uint16_t door2_stays_open_max = 10000;
-const uint16_t door1_speed = 170;             //min 0, max ~230
+const uint16_t door1_speed = 150;             //min 0, max ~230
 const uint16_t door2_speed = 150;
 const uint16_t door1_reset_up = 6300;         //distance to rotate for reset up
-const uint16_t door2_reset_up = 5300;
-const uint16_t door1_reset_down = 5350;       //distance to rotate for reset down
+const uint16_t door2_reset_up = 6300;
+const uint16_t door1_reset_down = 4400;       //distance to rotate for reset down
 const uint16_t door2_reset_down = 4400;
 
 //##############################################################################
@@ -247,7 +254,6 @@ void setup()
   //start I2C
   Wire.begin(); //atsamd can't multimaster
   
-  
   //disable RFID readers and wait until they acknowledge
   disableReader(reader1);
   disableReader(reader2);
@@ -260,12 +266,13 @@ void setup()
   
   //attach interrupt to all pins (must not analogRead interruptpins or else interrupt stops working!)
   attachInterrupt(digitalPinToInterrupt(sensor1), sensor1_ISR, RISING); //IR 1 door 1
-  attachInterrupt(digitalPinToInterrupt(sensor2), sensor2_ISR, RISING); //IR 2 middle
-  //attachInterrupt(digitalPinToInterrupt(sensor3), sensor3_ISR, RISING); //IR 3 door 2
+  attachInterrupt(digitalPinToInterrupt(sensor2), sensor2_ISR, RISING); //IR 2 door 2
+  //attachInterrupt(digitalPinToInterrupt(sensor3), sensor3_ISR, RISING); //IR 3 middle
   
   //----- Doors ----------------------------------------------------------------
   rotate(door1, door1_reset_up, 1, door1_speed);    //open door too much
   rotate(door2, door2_reset_up, 1, door2_speed);
+  delay(500);
   rotate(door1, door1_reset_down, 0, door1_speed);  //close door to correct height
   rotate(door2, door2_reset_down, 0, door2_speed);
   
@@ -686,7 +693,7 @@ void loop()
     
     if(!door1_open && !door1_moving && !door2_open && !door2_moving && //all closed and not moving
       (transition_to_tc == 0) && //not in transition towards testcage
-      (((transition_to_hc == 0) && (IR_middle_buffer_sum == 0)) || (transition_to_hc == 3))) //not transitioning to hc and middle must be empty OR already transitioning to hc
+      (((transition_to_hc == 0) && (IR_middle_buffer_sum == 0) && tc_empty) || (transition_to_hc == 3))) //not transitioning to hc and middle must be empty OR already transitioning to hc
     {
       //----- door management
       if(door1_counter >= 50)
@@ -771,8 +778,8 @@ void loop()
   //transitioning to TestCage
   if(transition_to_tc == 2)
   {
-    //for 1s we will read the IR, and afterwards decide if a mouse was present or not.
-    if((millis() - transition_time) >= 1000) //training phase 4 (training phase 3 >= 0)
+    //for x sec. we will read the IR, and afterwards decide if a mouse was present or not.
+    if((millis() - transition_time) >= 3000) //training phase 4 (training phase 3 >= 0)
     {
       //if no mouse is/was present, abort
       if(IR_middle_buffer_sum == 0)
@@ -783,6 +790,8 @@ void loop()
       if(IR_middle_buffer_sum > 0)
       {
         transition_to_tc = 3; //phase 3, open door of target cage
+        tc_empty = 0; //set flag, test cage is no longer empty
+        Serial.println("tc_empty 0");
       }
     }
   }
@@ -790,7 +799,7 @@ void loop()
   if(transition_to_hc == 2)
   {
     //for 1000ms we will read the RFID tags/IR of R2, and afterwards decide if a mouse was present or not.
-    if((millis() - transition_time) >= 1000) //training phase 4 (training phase 3 >= 0)
+    if((millis() - transition_time) >= 3000) //training phase 4 (training phase 3 >= 0)
     {
       //if no mouse is/was present, abort
       if(IR_middle_buffer_sum == 0)
@@ -801,6 +810,8 @@ void loop()
       if(IR_middle_buffer_sum > 0)
       {
         transition_to_hc = 3; //phase 3, open door towards target cage
+        tc_empty = 1; //reset flag tc is now empty (mouse returned)
+        Serial.println("tc_empty 1");
       }
     }
   }
@@ -893,15 +904,26 @@ void loop()
     }
   }
   
-  //FAILSAFE opens door towards homecage ---------------------------------------
+  //FAILSAFE 1 opens door towards homecage -------------------------------------
+  //cases: mouse manually opens door 1 or 2 and gets into middle
   //if a mouse is detected 8/10, open door towards home cage
   if(!door1_open && !door1_moving && !door2_open && !door2_moving && //all closed and not moving
     (transition_to_hc == 0) && (transition_to_tc == 0) && (IR_middle_buffer_sum >= 8)) //not transitioning and IR middle triggered
   {
     //create log entry, failsafe triggered and emulate transition: mouse has to leave towards homecage
-    SENSORDataString = createSENSORDataString("FS", "failsafe", SENSORDataString); //generate datastring
+    SENSORDataString = createSENSORDataString("FS", "failsafe1", SENSORDataString); //generate datastring
     transition_to_hc = 3;
   }
+  
+  //FAILSAFE 2 -----------------------------------------------------------------
+  //case: even though testcage should be empty, a mouse is detected
+  //if a mouse is detected at IR 2 or RFID 2, assume testcage not empty
+  if(tc_empty && (transition_to_hc == 1))
+  {
+    tc_empty = 0; //set tc not empty, needs to be reset by completing transition to hc
+    SENSORDataString = createSENSORDataString("FS", "failsafe2", SENSORDataString); //generate datastring
+  }
+  
   
     
   //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
