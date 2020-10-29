@@ -1,6 +1,6 @@
 //------------------------------------------------------------------------------
 /*
---- Adafruit ItsyBitsy M0 pin mapping ---
+--- Adafruit ItsyBitsy M0 pin mapping - Hardware Revision v2.0 ---
 
  A0- [JP 9] IR 2 door 2
  A1- [JP10] IR 1 door 1
@@ -69,7 +69,6 @@ uint8_t IR_middle_buffer_sum = 0;
 unsigned long IRsensor_time;       //time when IR sensors 1,2,3 were last checked
 
 //LEDs
-const uint8_t LED1 = 2;
 volatile uint8_t ledstate = LOW;
 Adafruit_DotStar strip(1, 41, 40, DOTSTAR_BRG); //create dotstar object
 
@@ -84,7 +83,7 @@ int status = WL_IDLE_STATUS;        //initialize for first check if wifi up
 #define SPIWIFI SPI                 //the SPI port
 
 //RTC - Real Time Clock
-const uint8_t GMT = 1;  //current timezone (Sommerzeit)
+const uint8_t GMT = 1;  //current timezone (Winterzeit)
 RTCZero rtc;            //create rtc object
 
 //Door Modules
@@ -99,10 +98,10 @@ unsigned long door1_time;         //stores time when door starts moving
 unsigned long door2_time;
 uint16_t rotate1_duration;        //duration until door has finished movement
 uint16_t rotate2_duration;
-uint16_t door1_counter = 0;       //counter how often door 1 was opened (used to reset door position)
-uint16_t door2_counter = 0;       //counter how often door 2 was opened (used to reset door position)
+uint16_t door1_counter = 0;       //counter how often door was opened (used to reset door position)
+uint16_t door2_counter = 0;
 uint8_t door1_reset = 0;          //flag is set if door needs to be "re-set"
-uint8_t door2_reset = 0;          132
+uint8_t door2_reset = 0;
 
 //RFID
 const uint8_t reader1 = 0x09;     //I2C address RFID module 1
@@ -137,7 +136,7 @@ unsigned long starttime;      //start of programm
 unsigned long rtccheck_time;  //time the rtc was checked last
 
 //Mice tags
-const uint8_t mice = 15;  //number of mice in experiment (add 2 for test-mice, add 1 for mouse 0)
+const uint8_t mice = 15;           //number of mice in experiment (add 1 for mouse 0, add 2 for test-mice)
 const uint8_t mouse_library[mice][6] = {
   {0x00,0x00,0x00,0x00,0x00,0x00}, //mouse 0
   {0x73,0x74,0xF7,0x90,0x2E,0xE1}, //mouse 1  sw_si
@@ -172,18 +171,17 @@ const uint8_t enable_wifi = 0;
 //before continuing. Also prints what is written to uSD to Serial as well.
 const uint8_t is_testing = 1;
 
-//Experiment variables
-const uint32_t warn_time =    60*60*24*1; //time after which a warning is logged
-
 //Habituation phase
 //1: both doors always open
 //2: doors closed, but open simultaneously
 //3: doors closed, singular mouse transition, 0sec. transition time
 //4: like 3, but transition time is 3sec.
-uint32_t habituation_phase = 1;
+uint32_t habituation_phase = 3;
 
+//For easier data evaluation or feedback, mouse participation and warnings can be set here
+//0 = does not participate; 1 = regular participation; 2 = warning; 3 = excluded from experiment
 //warning label 2 is handled automatically, DON'T SET!
-uint8_t mouse_participation[mice] = { //0 = does not participate; 1 = regular participation; 2 = warning; 3 = excluded from experiment
+uint8_t mouse_participation[mice] = {
   1, //mouse 0
   1, //mouse 1  sw_si
   1, //mouse 2  ro_ge
@@ -200,9 +198,7 @@ uint8_t mouse_participation[mice] = { //0 = does not participate; 1 = regular pa
   1, //mouse 13 polymorphmaus
   1}; //mouse 14 bleistiftmaus
 
-//12 mice, 3 values. 0: started poke, 1: successfully poked, 2: seen at R2
-//if first value of last seen time is set to 0, starttime will be used
-//only set first value of each mouse, accepted input is time in unixtime format
+//manually enter time mouse was last seen. accepted input is time in unixtime format
 uint32_t mouse_last_seen[mice] = {
   0, //mouse 0
   0, //mouse 1  sw_si
@@ -219,6 +215,9 @@ uint32_t mouse_last_seen[mice] = {
   0, //mouse 12 we_ro
   0, //mouse 13 polymorphmaus
   0}; //mouse 14 bleistiftmaus
+
+//time after which a warning is logged (ms)
+const uint32_t warn_time = 60*60*24*1;
 
 //door and transition management
 uint16_t transition_delay = 3000;             //time mouse is kept in transition with both doors closed in phase 4 (ms)
@@ -283,8 +282,7 @@ void setup()
   //----- WiFi -----------------------------------------------------------------
   if(enable_wifi == 1)
 	{
-		Serial.println("----- WiFi Setup -----"); // check if the WiFi module works
-		digitalWrite(LED1,HIGH); //turn on LED to show a connection attempt with wifi
+		Serial.println("----- WiFi Setup -----"); // check if the WiFi module work
     
     WiFi.setPins(13, 11, 12, -1, &SPIWIFI);
     
@@ -380,6 +378,7 @@ void setup()
     rtc.begin();
     Serial.println("WiFi disabled, setting time to 0");
     rtc.setEpoch(0); //1.1.2000 00:00:00 946684800
+    WiFi.end(); //disable wifi module
   }
   
   //----- Setup SD Card --------------------------------------------------------
@@ -707,27 +706,22 @@ void loop()
     }
   }
   
-  //----------------------------------------------------------------------------
-  //manage transitions ---------------------------------------------------------
-  //----------------------------------------------------------------------------
+  //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  //manage transitions ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
   
   //----------------------------------------------------------------------------
-  //door management for phase 2
+  //door management for phase 2 ------------------------------------------------
+  //----------------------------------------------------------------------------
   if(habituation_phase == 2)
   {
   
   //DOOR 1/2 OPENING
-  if(sensor1_triggered || sensor2_triggered || (IR_middle_buffer_sum >= 8))
+  if(sensor1_triggered || sensor2_triggered || failsafe_triggered)
   {
     sensor1_triggered = 0; //flag needs to be cleared (every time)
     sensor2_triggered = 0; //flag needs to be cleared (every time)
-    
-    if(IR_middle_buffer_sum >= 8)
-    {
-      //FAILSAFE
-      //case: mouse is in middle and both doors are closed
-      SENSORDataString = createSENSORDataString("FS", "failsafe", SENSORDataString); //generate datastring
-    }
+    failsafe_triggered = 0;
     
     if(!door1_open && !door1_moving && !door2_open && !door2_moving)  //all closed and not moving
     {
@@ -821,11 +815,19 @@ void loop()
       door2_open = 0;
     }
   }
-    
+  
+  //FAILSAFE -------------------------------------------------------------------
+  //case: mouse is in middle and both doors are closed
+  if(!door1_open && !door1_moving && !door2_open && !door2_moving && (IR_middle_buffer_sum >= 8))
+  {
+    SENSORDataString = createSENSORDataString("FS", "failsafe1", SENSORDataString); //generate datastring
+    failsafe_triggered = 1;
+  }
   } //phase 2
   
   //----------------------------------------------------------------------------
-  //enable solo transitions for phase 3&4
+  //door management for phase 3 & 4 --------------------------------------------
+  //----------------------------------------------------------------------------
   if((habituation_phase == 3) || (habituation_phase == 4))
   {
   
@@ -922,7 +924,7 @@ void loop()
   if(transition_to_tc == 2)
   {
     //for x sec. we will read the IR, and afterwards decide if a mouse was present or not.
-    if((millis() - transition_time) >= transition_delay) //training phase 4 (training phase 3 >= 0)
+    if((millis() - transition_time) >= transition_delay)
     {
       //if no mouse is/was present, abort
       if(IR_middle_buffer_sum == 0)
@@ -934,15 +936,14 @@ void loop()
       {
         transition_to_tc = 3; //phase 3, open door of target cage
         tc_empty = 0; //set flag, test cage is no longer empty
-        Serial.println("tc_empty 0");
       }
     }
   }
   //transitioning to HomeCage (here we don't check for multiple mice, as the way back is always free)
   if(transition_to_hc == 2)
   {
-    //for 1000ms we will read the RFID tags/IR of R2, and afterwards decide if a mouse was present or not.
-    if((millis() - transition_time) >= transition_delay) //training phase 4 (training phase 3 >= 0)
+    //for x ms we will wait and read the RFID tags/IR of R2, and afterwards decide if a mouse was present or not.
+    if((millis() - transition_time) >= transition_delay)
     {
       //if no mouse is/was present, abort
       if(IR_middle_buffer_sum == 0)
@@ -954,7 +955,6 @@ void loop()
       {
         transition_to_hc = 3; //phase 3, open door towards target cage
         tc_empty = 1; //reset flag tc is now empty (mouse returned)
-        Serial.println("tc_empty 1");
       }
     }
   }
@@ -1061,14 +1061,13 @@ void loop()
   
   //FAILSAFE 2 -----------------------------------------------------------------
   //case: even though testcage should be empty, a mouse is detected
-  //if a mouse is detected at IR 2 or RFID 2, assume testcage not empty
+  //if a mouse is detected at IR 2, assume testcage not empty
   if(tc_empty && (transition_to_hc == 1))
   {
     tc_empty = 0; //set tc not empty, needs to be reset by completing transition to hc
     SENSORDataString = createSENSORDataString("FS", "failsafe2", SENSORDataString); //generate datastring
   }
-  
-} //enable transitions for phase 3&4
+  } //enable transitions for phase 3&4
   
   //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
   //do other stuff (every now and then) ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1099,7 +1098,6 @@ void loop()
         SENSORDataString = createSENSORDataString("MwR", String(i), SENSORDataString); //Mw = mouse warning
       }
     }
-    
   }
   
   //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1257,11 +1255,6 @@ void enableReader(byte reader)
     Wire.beginTransmission(reader);
     Wire.write(1);
     send_status = Wire.endTransmission();
-    
-    digitalWrite(LED1,HIGH);
-    delay(200);
-    digitalWrite(LED1,LOW);
-    delay(200);
   }
 }
 
@@ -1275,11 +1268,6 @@ void disableReader(byte reader)
     Wire.beginTransmission(reader);
     Wire.write(0);
     send_status = Wire.endTransmission();
-    
-    digitalWrite(LED1,HIGH);
-    delay(50);
-    digitalWrite(LED1,LOW);
-    delay(50);
   }
 }
 
