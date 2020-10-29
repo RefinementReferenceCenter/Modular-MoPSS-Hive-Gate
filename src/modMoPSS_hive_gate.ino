@@ -45,7 +45,6 @@ _______/                  |----- 10cm ----|                  \________
 //Current Version of the program
 //##############################################################################
 //##############################################################################
-const char VERSION[9] = "05102020"; //obsolete with git?
 const char HARDWARE_REV[] = "v2.0";
 //##############################################################################
 //##############################################################################
@@ -82,10 +81,10 @@ File dataFile;          //create file object
 char ssid[] = "Buchhaim";           //network name
 char pass[] = "2416AdZk3881QPnh+";  //WPA key
 int status = WL_IDLE_STATUS;        //initialize for first check if wifi up
-#define SPIWIFI       SPI  // The SPI port
+#define SPIWIFI SPI                 //the SPI port
 
 //RTC - Real Time Clock
-const uint8_t GMT = 2;  //current timezone (Sommerzeit)
+const uint8_t GMT = 1;  //current timezone (Sommerzeit)
 RTCZero rtc;            //create rtc object
 
 //Door Modules
@@ -100,10 +99,10 @@ unsigned long door1_time;         //stores time when door starts moving
 unsigned long door2_time;
 uint16_t rotate1_duration;        //duration until door has finished movement
 uint16_t rotate2_duration;
-uint16_t door1_counter = 0;       //counter how often door 2 was opened (used to reset door position)
+uint16_t door1_counter = 0;       //counter how often door 1 was opened (used to reset door position)
 uint16_t door2_counter = 0;       //counter how often door 2 was opened (used to reset door position)
 uint8_t door1_reset = 0;          //flag is set if door needs to be "re-set"
-uint8_t door2_reset = 0;          //flag is set if door needs to be "re-set"
+uint8_t door2_reset = 0;          132
 
 //RFID
 const uint8_t reader1 = 0x09;     //I2C address RFID module 1
@@ -131,12 +130,10 @@ uint8_t RFIDmode_firstrun = 1;  //to make sure the correct reader is turned on/o
 uint8_t transition_to_tc = 0;         //track transition phase to target cage
 uint8_t transition_to_hc = 0;         //track transition phase to home cage
 unsigned long transition_time = 0;    //time when both doors are closed, when mouse is in the middle
-uint8_t failsafe = 0;                 //flag if failsafe is triggered (ONLY FOR TRAINING PHASE 2)
 uint8_t tc_empty = 1;                 //flag that allows a transition into the test cage
+uint8_t failsafe_triggered = 0;       //only needed for phase 2
 
-uint16_t day = 1;             // counts days, necessary to raise nosepokes_needed
-unsigned long starttime;      // start of programm, necessary to raise nosepokes_needed
-uint8_t next_raise;           // when to raise threshold next time
+unsigned long starttime;      //start of programm
 unsigned long rtccheck_time;  //time the rtc was checked last
 
 //Mice tags
@@ -177,7 +174,13 @@ const uint8_t is_testing = 1;
 
 //Experiment variables
 const uint32_t warn_time =    60*60*24*1; //time after which a warning is logged
-const uint32_t exclude_time = 60*60*24*2; //time after which mouse is excluded
+
+//Habituation phase
+//1: both doors always open
+//2: doors closed, but open simultaneously
+//3: doors closed, singular mouse transition, 0sec. transition time
+//4: like 3, but transition time is 3sec.
+uint32_t habituation_phase = 1;
 
 //warning label 2 is handled automatically, DON'T SET!
 uint8_t mouse_participation[mice] = { //0 = does not participate; 1 = regular participation; 2 = warning; 3 = excluded from experiment
@@ -217,7 +220,8 @@ uint32_t mouse_last_seen[mice] = {
   0, //mouse 13 polymorphmaus
   0}; //mouse 14 bleistiftmaus
 
-//door management
+//door and transition management
+uint16_t transition_delay = 3000;             //time mouse is kept in transition with both doors closed in phase 4 (ms)
 const uint16_t door1_needed_rotation = 4000;  //3200 = 1 revolution
 const uint16_t door2_needed_rotation = 4000;
 const uint16_t door1_stays_open_min = 500;    //minimum open time
@@ -396,11 +400,14 @@ void setup()
   //open file, or create if empty
   dataFile = SD.open("RFIDLOG.TXT", FILE_WRITE);
   
+  //get experiment start time
+  starttime = rtc.getEpoch();
+  
   //TODO: add option to query RFID reader for version and resonant frequency
   //write current version to SD and some other startup/system related information
   dataFile.println("");
   dataFile.print("# Modular MoPSS Hive version: ");
-  dataFile.println(VERSION);
+  dataFile.println("not yet implemented");
   
   dataFile.print("# Door Module 1 version: ");
   dataFile.println("not yet implemented");
@@ -411,6 +418,9 @@ void setup()
   dataFile.println("not yet implemented");
   dataFile.print("# RFID Module 2 version: ");
   dataFile.println("not yet implemented");
+  
+  dataFile.print("# Habituation phase: ");
+  dataFile.println(habituation_phase);
 
   dataFile.print("# System start @ ");
   dataFile.print(nicetime());
@@ -421,13 +431,12 @@ void setup()
   dataFile.print("-");
   dataFile.println(rtc.getYear());
   dataFile.print("# Unixtime: ");
-  dataFile.println(rtc.getEpoch());
+  dataFile.println(starttime);
   dataFile.println();
   
   dataFile.flush();
-
-  //---- get start time and intialize mouse_last_seen --------------------------
-  starttime = rtc.getEpoch();
+  
+  //---- setup experiment variables --------------------------------------------
   
   //initialize last seen time with starttime unless provided in setup section
   for(uint8_t i = 1; i < mice; i++) //exculde mouse 0 from time
@@ -436,6 +445,20 @@ void setup()
     {
       mouse_last_seen[i] = starttime;
     }
+  }
+  
+  //set variables for different habituation phases
+  if(habituation_phase == 1)
+  {
+    uint16_t mt; //move time of doors
+    mt = rotate(door1, door1_reset_up, 1, door1_speed); //open door too much
+    rotate(door2, door2_reset_up, 1, door2_speed);
+    delay(mt); //wait for doors to finish moving
+  }
+  
+  if(habituation_phase == 3)
+  {
+    transition_delay = 0;
   }
   
 } //end of setup
@@ -687,6 +710,126 @@ void loop()
   //----------------------------------------------------------------------------
   //manage transitions ---------------------------------------------------------
   //----------------------------------------------------------------------------
+  
+  //----------------------------------------------------------------------------
+  //door management for phase 2
+  if(habituation_phase == 2)
+  {
+  
+  //DOOR 1/2 OPENING
+  if(sensor1_triggered || sensor2_triggered || (IR_middle_buffer_sum >= 8))
+  {
+    sensor1_triggered = 0; //flag needs to be cleared (every time)
+    sensor2_triggered = 0; //flag needs to be cleared (every time)
+    
+    if(IR_middle_buffer_sum >= 8)
+    {
+      //FAILSAFE
+      //case: mouse is in middle and both doors are closed
+      SENSORDataString = createSENSORDataString("FS", "failsafe", SENSORDataString); //generate datastring
+    }
+    
+    if(!door1_open && !door1_moving && !door2_open && !door2_moving)  //all closed and not moving
+    {
+      if(door1_counter >= 50) //since both move, door1_counter is enough
+      {
+        rotate1_duration = rotate(door1, door1_reset_up, 1, door1_speed); //open door too much
+        SENSORDataString = createSENSORDataString("D1", "Opening_reset", SENSORDataString); //generate datastring
+        door1_counter = 0;
+        door1_reset = 1;
+        rotate2_duration = rotate(door2, door2_reset_up, 1, door2_speed); //open door too much
+        SENSORDataString = createSENSORDataString("D2", "Opening_reset", SENSORDataString); //generate datastring
+        door2_counter = 0;
+        door2_reset = 1;
+      }
+      else
+      {
+        rotate1_duration = rotate(door1, door1_needed_rotation, 1, door1_speed); //open door
+        SENSORDataString = createSENSORDataString("D1", "Opening", SENSORDataString); //generate datastring
+        door1_counter++;
+        rotate2_duration = rotate(door2, door2_needed_rotation, 1, door2_speed); //open door
+        SENSORDataString = createSENSORDataString("D2", "Opening", SENSORDataString); //generate datastring
+        door2_counter++;
+      }
+      
+      door1_time = millis();
+      door1_moving = 1; //set flag, door is opening
+      door2_time = millis(); //opening time
+      door2_moving = 1; //set flag, door is opening
+    }
+  }
+  
+  //DOOR 1/2 CLOSING
+  if(door1_open && !door1_moving && door2_open && !door2_moving && //open and not moving
+    ((millis() - door1_time) >= (door1_stays_open_min+rotate1_duration)) && //minimum open time passed
+      (((IR_door1_buffer_sum <= 3) && (IR_door2_buffer_sum <= 3) && (IR_middle_buffer_sum == 0)) || //doors and middle is not blocked
+      ((millis() - door1_time) >= (door1_stays_open_max+rotate1_duration)))) //OR maximum open time passed: takes precedence above all conditions
+  {
+    //----- door management
+    if(door1_reset)
+    {
+      rotate1_duration = rotate(door1, door1_reset_down, 0, door1_speed); //close door to correct height after reset_up
+      SENSORDataString = createSENSORDataString("D1", "Closing_reset", SENSORDataString); //maximum logging
+      door1_reset = 0;
+      rotate2_duration = rotate(door2, door2_reset_down, 0, door2_speed); //close door to correct height after reset_up
+      SENSORDataString = createSENSORDataString("D2", "Closing_reset", SENSORDataString); //maximum logging
+      door2_reset = 0;
+    }
+    else
+    {
+      rotate1_duration = rotate(door1, door1_needed_rotation, 0, door1_speed); //close door
+      SENSORDataString = createSENSORDataString("D1", "Closing", SENSORDataString); //maximum logging
+      rotate2_duration = rotate(door2, door2_needed_rotation, 0, door2_speed); //close door
+      SENSORDataString = createSENSORDataString("D2", "Closing", SENSORDataString); //maximum logging
+    }
+    door1_time = millis();
+    door1_moving = 1;
+    door2_time = millis();
+    door2_moving = 1;
+  }
+  
+  //DOOR 1 OPEN/CLOSED create log entry when door has finished moving
+  if(door1_moving && ((millis() - door1_time) >= rotate1_duration))
+  {
+    //----- door management
+    door1_moving = 0; //door has finished moving, calculated from rotate-duration
+    if(!door1_open) //if door has finished moving and was open before, it is now closed
+    {
+      SENSORDataString = createSENSORDataString("D1", "Opened", SENSORDataString); //maximum logging
+      door1_open = 1;
+    }
+    else
+    {
+      SENSORDataString = createSENSORDataString("D1", "Closed", SENSORDataString); //generate datastring
+      door1_open = 0;
+    }
+  }
+  
+  //DOOR 2 OPEN/CLOSED create log entry when door has finished moving
+  if(door2_moving && ((millis() - door2_time) >= rotate2_duration))
+  {
+    //----- door management
+    door2_moving = 0; //door has finished moving, calculated from rotate-duration
+    if(!door2_open) //if door has finished moving and was open before, it is now closed
+    {
+      SENSORDataString = createSENSORDataString("D2", "Opened", SENSORDataString); //maximum logging
+      door2_open = 1;
+    }
+    else
+    {
+      SENSORDataString = createSENSORDataString("D2", "Closed", SENSORDataString); //generate datastring
+      door2_open = 0;
+    }
+  }
+    
+  } //phase 2
+  
+  //----------------------------------------------------------------------------
+  //enable solo transitions for phase 3&4
+  if((habituation_phase == 3) || (habituation_phase == 4))
+  {
+  
+  //IR sensor 1 or The Way Forward ---------------------------------------------
   if(sensor1_triggered || (transition_to_hc == 3))
   {
     sensor1_triggered = 0; //flag needs to be cleared (every time)
@@ -779,7 +922,7 @@ void loop()
   if(transition_to_tc == 2)
   {
     //for x sec. we will read the IR, and afterwards decide if a mouse was present or not.
-    if((millis() - transition_time) >= 3000) //training phase 4 (training phase 3 >= 0)
+    if((millis() - transition_time) >= transition_delay) //training phase 4 (training phase 3 >= 0)
     {
       //if no mouse is/was present, abort
       if(IR_middle_buffer_sum == 0)
@@ -799,7 +942,7 @@ void loop()
   if(transition_to_hc == 2)
   {
     //for 1000ms we will read the RFID tags/IR of R2, and afterwards decide if a mouse was present or not.
-    if((millis() - transition_time) >= 3000) //training phase 4 (training phase 3 >= 0)
+    if((millis() - transition_time) >= transition_delay) //training phase 4 (training phase 3 >= 0)
     {
       //if no mouse is/was present, abort
       if(IR_middle_buffer_sum == 0)
@@ -817,9 +960,9 @@ void loop()
   }
   
   //----------------------------------------------------------------------------
-  //IR sensor or The Way Back --------------------------------------------------
+  //IR sensor 2 or The Way Back ------------------------------------------------
   //DOOR 2 OPENING
-  if(sensor2_triggered  || (transition_to_tc == 3))
+  if(sensor2_triggered || (transition_to_tc == 3))
   {
     sensor2_triggered = 0; //flag needs to be cleared (every time)
     
@@ -904,6 +1047,7 @@ void loop()
     }
   }
   
+  //----------------------------------------------------------------------------
   //FAILSAFE 1 opens door towards homecage -------------------------------------
   //cases: mouse manually opens door 1 or 2 and gets into middle
   //if a mouse is detected 8/10, open door towards home cage
@@ -924,14 +1068,14 @@ void loop()
     SENSORDataString = createSENSORDataString("FS", "failsafe2", SENSORDataString); //generate datastring
   }
   
+} //enable transitions for phase 3&4
   
-    
   //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
   //do other stuff (every now and then) ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
   //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
   
-  //do stuff every 10 seconds (that needs rtc) ---------------------------------
-  if((millis() - rtccheck_time) > 10000)
+  //do stuff every 10 minutes (that needs rtc) ---------------------------------
+  if((millis() - rtccheck_time) > 600000)
   {
     rtccheck_time = millis();
     uint32_t rtc_now = rtc.getEpoch(); //~5.8ms
