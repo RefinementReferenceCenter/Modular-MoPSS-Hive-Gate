@@ -168,18 +168,18 @@ uint8_t current_mouse2 = 0;           //placeholder simple number for tag at rea
 //##############################################################################
 
 //if set to 1, the MoPSS will wait for a wifi connection and synchronization with network time before continuing
-const uint8_t enable_wifi = 0;
+const uint8_t enable_wifi = 1;
 
 //if set to 1, the MoPSS will wait until a serial connection via USB is established
 //before continuing. Also prints what is written to uSD to Serial as well.
-const uint8_t is_testing = 1;
+const uint8_t is_testing = 0;
 
 //Habituation phase
 //1: both doors always open
 //2: doors closed, but open simultaneously
 //3: doors closed, singular mouse transition, 0sec. transition time
 //4: like 3, but transition time is 3sec.
-uint32_t habituation_phase = 4;
+uint32_t habituation_phase = 1;
 
 //For easier data evaluation or feedback, mouse participation and warnings can be set here
 //0 = does not participate; 1 = regular participation; 2 = warning; 3 = excluded from experiment
@@ -224,18 +224,18 @@ const uint32_t warn_time = 60*60*24*1;
 
 //door and transition management
 uint16_t transition_delay = 3000;             //time mouse is kept in transition with both doors closed in phase 4 (ms)
-const uint16_t door1_needed_rotation = 4000;  //3200 = 1 revolution
-const uint16_t door2_needed_rotation = 4000;
+const uint16_t door1_needed_rotation = 1900;  //3200 = 1 revolution
+const uint16_t door2_needed_rotation = 1900;
+const uint16_t door1_reset_up = 3000;         //distance to rotate for reset up
+const uint16_t door2_reset_up = 3000;
+const uint16_t door1_reset_down = 2050;       //distance to rotate for reset down
+const uint16_t door2_reset_down = 2050;
+const uint16_t door1_speed = 80;             //min 0, max ~230
+const uint16_t door2_speed = 80;
 const uint16_t door1_stays_open_min = 500;    //minimum open time
 const uint16_t door2_stays_open_min = 500;
 const uint16_t door1_stays_open_max = 10000;  //maximum open time
 const uint16_t door2_stays_open_max = 10000;
-const uint16_t door1_speed = 150;             //min 0, max ~230
-const uint16_t door2_speed = 150;
-const uint16_t door1_reset_up = 6300;         //distance to rotate for reset up
-const uint16_t door2_reset_up = 6300;
-const uint16_t door1_reset_down = 4400;       //distance to rotate for reset down
-const uint16_t door2_reset_down = 4400;
 
 //##############################################################################
 //#####   S E T U P   ##########################################################
@@ -1080,7 +1080,8 @@ void loop()
     d2_timeout = 0;
     //reset tc occupied
     tc_empty = 1;
-    Serial.println("failsave visit reset");
+    //generate datastring (temporary, for debugging)
+    SENSORDataString = createSENSORDataString("FS", "tc_empty set 1", SENSORDataString);
   }
   
   //FAILSAFE 2 -----------------------------------------------------------------
