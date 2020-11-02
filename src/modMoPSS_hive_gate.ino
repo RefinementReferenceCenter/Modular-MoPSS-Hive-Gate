@@ -135,6 +135,9 @@ uint8_t failsafe_triggered = 0;       //only needed for phase 2
 unsigned long starttime;      //start of programm
 unsigned long rtccheck_time;  //time the rtc was checked last
 
+uint8_t d2_timeout = 0;       //flag stores if d2 closed from timeout if transitioning to tc
+unsigned long d2_timeout_time;     //stores time when timeout happened
+
 //Mice tags
 const uint8_t mice = 15;           //number of mice in experiment (add 1 for mouse 0, add 2 for test-mice)
 const uint8_t mouse_library[mice][6] = {
@@ -176,7 +179,7 @@ const uint8_t is_testing = 1;
 //2: doors closed, but open simultaneously
 //3: doors closed, singular mouse transition, 0sec. transition time
 //4: like 3, but transition time is 3sec.
-uint32_t habituation_phase = 3;
+uint32_t habituation_phase = 4;
 
 //For easier data evaluation or feedback, mouse participation and warnings can be set here
 //0 = does not participate; 1 = regular participation; 2 = warning; 3 = excluded from experiment
@@ -1018,6 +1021,17 @@ void loop()
       rotate2_duration = rotate(door2, door2_needed_rotation, 0, door2_speed); //close door
       SENSORDataString = createSENSORDataString("D2", "Closing", SENSORDataString); //maximum logging
     }
+    
+    //manage failsafe for mouse that doesn't leave middle
+    if(((millis() - door2_time) >= (door2_stays_open_max+rotate2_duration)) && !tc_empty)
+    {
+      //sets flag door2 closing after timeout when mouse should transition to tc
+      d2_timeout = 1;
+      //save time to evaluate failsafe
+      d2_timeout_time = millis();
+      Serial.println("d2 flag set");
+    }
+
     door2_time = millis();
     door2_moving = 1;
   }
@@ -1057,6 +1071,16 @@ void loop()
     //create log entry, failsafe triggered and emulate transition: mouse has to leave towards homecage
     SENSORDataString = createSENSORDataString("FS", "failsafe1", SENSORDataString); //generate datastring
     transition_to_hc = 3;
+  }
+  
+  //if FS1 occured directly after door 2 has closed, reset tc occupation (mouse never left towards tc, stayed in middle)
+  if(d2_timeout && ((millis() - d2_timeout_time) <= 3000))
+  {
+    //reset flag
+    d2_timeout = 0;
+    //reset tc occupied
+    tc_empty = 1;
+    Serial.println("failsave visit reset");
   }
   
   //FAILSAFE 2 -----------------------------------------------------------------
