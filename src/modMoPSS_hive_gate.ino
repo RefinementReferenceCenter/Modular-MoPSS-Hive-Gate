@@ -142,18 +142,18 @@ unsigned long d2_timeout_time;     //stores time when timeout happened
 const uint8_t mice = 15;           //number of mice in experiment (add 1 for mouse 0, add 2 for test-mice)
 const uint8_t mouse_library[mice][6] = {
   {0x00,0x00,0x00,0x00,0x00,0x00}, //mouse 0
-  {0x73,0x74,0xF7,0x90,0x2E,0xE1}, //mouse 1  sw_si
-  {0x7F,0x65,0x7F,0x90,0x2E,0xE1}, //mouse 2  ro_ge
-  {0x40,0x73,0x7F,0x90,0x2E,0xE1}, //mouse 3  sw_ro
-  {0x32,0x74,0x7F,0x90,0x2E,0xE1}, //mouse 4  we_sw
-  {0xB8,0x74,0x7F,0x90,0x2E,0xE1}, //mouse 5  ro_we
-  {0x18,0x6E,0x7F,0x90,0x2E,0xE1}, //mouse 6  sw_ge
-  {0xAA,0x71,0x7F,0x90,0x2E,0xE1}, //mouse 7  we_si
-  {0x6B,0x6E,0x7F,0x90,0x2E,0xE1}, //mouse 8  ro_si
-  {0x0F,0x71,0x7F,0x90,0x2E,0xE1}, //mouse 9  sw_we
-  {0x77,0x6F,0x7F,0x90,0x2E,0xE1}, //mouse 10 we_ge
-  {0x91,0x64,0x7F,0x90,0x2E,0xE1}, //mouse 11 ro_sw
-  {0x41,0x73,0x7F,0x90,0x2E,0xE1}, //mouse 12 we_ro
+  {0x73,0x74,0xF7,0x90,0x2E,0xE1}, //mouse 1  sw_si 1923
+  {0x7F,0x65,0x7F,0x90,0x2E,0xE1}, //mouse 2  ro_ge 8095
+  {0x40,0x73,0x7F,0x90,0x2E,0xE1}, //mouse 3  sw_ro 1616
+  {0x32,0x74,0x7F,0x90,0x2E,0xE1}, //mouse 4  we_sw 1858
+  {0xB8,0x74,0x7F,0x90,0x2E,0xE1}, //mouse 5  ro_we 1992
+  {0x18,0x6E,0x7F,0x90,0x2E,0xE1}, //mouse 6  sw_ge 0296
+  {0xAA,0x71,0x7F,0x90,0x2E,0xE1}, //mouse 7  we_si 1210
+  {0x6B,0x6E,0x7F,0x90,0x2E,0xE1}, //mouse 8  ro_si 0379
+  {0x0F,0x71,0x7F,0x90,0x2E,0xE1}, //mouse 9  sw_we 1055
+  {0x77,0x6F,0x7F,0x90,0x2E,0xE1}, //mouse 10 we_ge 0647
+  {0x91,0x64,0x7F,0x90,0x2E,0xE1}, //mouse 11 ro_sw 7857
+  {0x41,0x73,0x7F,0x90,0x2E,0xE1}, //mouse 12 we_ro 1617
   {0xA1,0x82,0x42,0xDD,0x3E,0xF3}, //mouse 13 polymorphmaus
   {0x0E,0x67,0xF7,0x90,0x2E,0xE1}  //mouse 14 bleistiftmaus
 };
@@ -186,36 +186,36 @@ uint32_t habituation_phase = 1;
 //warning label 2 is handled automatically, DON'T SET!
 uint8_t mouse_participation[mice] = {
   1, //mouse 0
-  1, //mouse 1  sw_si
-  1, //mouse 2  ro_ge
-  1, //mouse 3  sw_ro
-  1, //mouse 4  we_sw
-  1, //mouse 5  ro_we
-  1, //mouse 6  sw_ge
-  1, //mouse 7  we_si
-  1, //mouse 8  ro_si
-  1, //mouse 9  sw_we
-  1, //mouse 10 we_ge
-  1, //mouse 11 ro_sw
-  1, //mouse 12 we_ro
+  1, //mouse 1  sw_si 1923
+  1, //mouse 2  ro_ge 8095
+  1, //mouse 3  sw_ro 1616
+  1, //mouse 4  we_sw 1858
+  1, //mouse 5  ro_we 1992
+  1, //mouse 6  sw_ge 0296
+  1, //mouse 7  we_si 1210
+  1, //mouse 8  ro_si 0379
+  1, //mouse 9  sw_we 1055
+  1, //mouse 10 we_ge 0647
+  1, //mouse 11 ro_sw 7857
+  1, //mouse 12 we_ro 1617
   1, //mouse 13 polymorphmaus
   1}; //mouse 14 bleistiftmaus
 
 //manually enter time mouse was last seen. accepted input is time in unixtime format
 uint32_t mouse_last_seen[mice] = {
   0, //mouse 0
-  0, //mouse 1  sw_si
-  0, //mouse 2  ro_ge
-  0, //mouse 3  sw_ro
-  0, //mouse 4  we_sw
-  0, //mouse 5  ro_we
-  0, //mouse 6  sw_ge
-  0, //mouse 7  we_si
-  0, //mouse 8  ro_si
-  0, //mouse 9  sw_we
-  0, //mouse 10 we_ge
-  0, //mouse 11 ro_sw
-  0, //mouse 12 we_ro
+  0, //mouse 1  sw_si 1923
+  0, //mouse 2  ro_ge 8095
+  0, //mouse 3  sw_ro 1616
+  0, //mouse 4  we_sw 1858
+  0, //mouse 5  ro_we 1992
+  0, //mouse 6  sw_ge 0296
+  0, //mouse 7  we_si 1210
+  0, //mouse 8  ro_si 0379
+  0, //mouse 9  sw_we 1055
+  0, //mouse 10 we_ge 0647
+  0, //mouse 11 ro_sw 7857
+  0, //mouse 12 we_ro 1617
   0, //mouse 13 polymorphmaus
   0}; //mouse 14 bleistiftmaus
 
@@ -230,8 +230,8 @@ const uint16_t door1_reset_up = 3000;         //distance to rotate for reset up
 const uint16_t door2_reset_up = 3000;
 const uint16_t door1_reset_down = 2050;       //distance to rotate for reset down
 const uint16_t door2_reset_down = 2050;
-const uint16_t door1_speed = 80;             //min 0, max ~230
-const uint16_t door2_speed = 80;
+const uint16_t door1_speed = 60;             //min 0, max ~230
+const uint16_t door2_speed = 60;
 const uint16_t door1_stays_open_min = 500;    //minimum open time
 const uint16_t door2_stays_open_min = 500;
 const uint16_t door1_stays_open_max = 10000;  //maximum open time
