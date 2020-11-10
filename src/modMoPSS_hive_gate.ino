@@ -220,7 +220,7 @@ uint32_t mouse_last_seen[mice] = {
   0}; //mouse 14 bleistiftmaus
 
 //time after which a warning is logged (ms)
-const uint32_t warn_time = 60*60*24*1;
+const uint32_t warn_time = 60*60*24*1000;
 
 //door and transition management
 uint16_t transition_delay = 3000;             //time mouse is kept in transition with both doors closed in phase 4 (ms)
