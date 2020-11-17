@@ -176,10 +176,11 @@ const uint8_t is_testing = 0;
 
 //Habituation phase
 //1: both doors always open
-//2: doors closed, but open simultaneously
-//3: doors closed, singular mouse transition, 0sec. transition time
-//4: like 3, but transition time is 3sec.
-uint32_t habituation_phase = 1;
+//2: doors closed, but open/close simultaneously, no mouse limit for test cage
+//3: doors closed, singular mouse transition, 0sec. transition time, no mouse limit for test cage
+//4: doors closed, singular mouse transition, 0sec. transition time, 1 mouse limit for test cage
+//5: like 4, but transition time is 3sec.
+uint32_t habituation_phase = 3;
 
 //For easier data evaluation or feedback, mouse participation and warnings can be set here
 //0 = does not participate; 1 = regular participation; 2 = warning; 3 = excluded from experiment
@@ -458,7 +459,13 @@ void setup()
     delay(mt); //wait for doors to finish moving
   }
   
+  //redundant, for clarification. phase 3 doens't track tc occupation
   if(habituation_phase == 3)
+  {
+    tc_empty = 1;
+  }
+  
+  if(habituation_phase == 4)
   {
     transition_delay = 0;
   }
@@ -831,7 +838,7 @@ void loop()
   //----------------------------------------------------------------------------
   //door management for phase 3 & 4 --------------------------------------------
   //----------------------------------------------------------------------------
-  if((habituation_phase == 3) || (habituation_phase == 4))
+  if((habituation_phase == 4) || (habituation_phase == 5))
   {
   
   //IR sensor 1 or The Way Forward ---------------------------------------------
@@ -938,7 +945,10 @@ void loop()
       if(IR_middle_buffer_sum > 0)
       {
         transition_to_tc = 3; //phase 3, open door of target cage
-        tc_empty = 0; //set flag, test cage is no longer empty
+        if((habituation_phase == 4) || (habituation_phase == 5))
+        {
+          tc_empty = 0; //set flag, test cage is no longer empty
+        }
       }
     }
   }
@@ -957,7 +967,10 @@ void loop()
       if(IR_middle_buffer_sum > 0)
       {
         transition_to_hc = 3; //phase 3, open door towards target cage
-        tc_empty = 1; //reset flag tc is now empty (mouse returned)
+        if((habituation_phase == 4) || (habituation_phase == 5))
+        {
+          tc_empty = 1; //reset flag tc is now empty (mouse returned)
+        }
       }
     }
   }
@@ -1029,7 +1042,6 @@ void loop()
       d2_timeout = 1;
       //save time to evaluate failsafe
       d2_timeout_time = millis();
-      Serial.println("d2 flag set");
     }
 
     door2_time = millis();
@@ -1073,24 +1085,30 @@ void loop()
     transition_to_hc = 3;
   }
   
-  //if FS1 occured directly after door 2 has closed, reset tc occupation (mouse never left towards tc, stayed in middle)
-  if(d2_timeout && ((millis() - d2_timeout_time) <= 3000))
+  //if FS1 occured within 3sec. after door 2 has closed, reset tc occupation (mouse never left towards tc, stayed in middle)
+  if((habituation_phase == 4) || (habituation_phase == 5))
   {
-    //reset flag
-    d2_timeout = 0;
-    //reset tc occupied
-    tc_empty = 1;
-    //generate datastring (temporary, for debugging)
-    SENSORDataString = createSENSORDataString("FS", "tc_empty set 1", SENSORDataString);
+    if(d2_timeout && ((millis() - d2_timeout_time) <= 3000))
+    {
+      //reset flag
+      d2_timeout = 0;
+      //reset tc occupied
+      tc_empty = 1;
+      //generate datastring (temporary, for debugging)
+      SENSORDataString = createSENSORDataString("FS", "tc_empty set 1", SENSORDataString);
+    }
   }
   
   //FAILSAFE 2 -----------------------------------------------------------------
   //case: even though testcage should be empty, a mouse is detected
   //if a mouse is detected at IR 2, assume testcage not empty
-  if(tc_empty && (transition_to_hc == 1))
+  if((habituation_phase == 4) || (habituation_phase == 5))
   {
-    tc_empty = 0; //set tc not empty, needs to be reset by completing transition to hc
-    SENSORDataString = createSENSORDataString("FS", "failsafe2", SENSORDataString); //generate datastring
+    if(tc_empty && (transition_to_hc == 1))
+    {
+      tc_empty = 0; //set tc not empty, needs to be reset by completing transition to hc
+      SENSORDataString = createSENSORDataString("FS", "failsafe2", SENSORDataString); //generate datastring
+    }
   }
   } //enable transitions for phase 3&4
   
