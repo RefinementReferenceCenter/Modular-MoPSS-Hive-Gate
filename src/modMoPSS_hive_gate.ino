@@ -174,6 +174,9 @@ const uint8_t enable_wifi = 1;
 //before continuing. Also prints what is written to uSD to Serial as well.
 const uint8_t is_testing = 0;
 
+//if set to 1, a high amount of sensor data will be written to log
+const uint8_t debug = 1;
+
 //Habituation phase
 //1: both doors always open
 //2: doors closed, but open/close simultaneously, no mouse limit for test cage
@@ -838,12 +841,14 @@ void loop()
   //----------------------------------------------------------------------------
   //door management for phase 3 & 4 --------------------------------------------
   //----------------------------------------------------------------------------
-  if((habituation_phase == 4) || (habituation_phase == 5))
+  if((habituation_phase == 3) || (habituation_phase == 4) || (habituation_phase == 5))
   {
   
   //IR sensor 1 or The Way Forward ---------------------------------------------
   if(sensor1_triggered || (transition_to_hc == 3))
   {
+    if(debug && sensor1_triggered){SENSORDataString = createSENSORDataString("IR1", "IR1_interrupt", SENSORDataString);}
+    
     sensor1_triggered = 0; //flag needs to be cleared (every time)
     
     if(!door1_open && !door1_moving && !door2_open && !door2_moving && //all closed and not moving
@@ -869,7 +874,7 @@ void loop()
       door1_moving = 1; //set flag, door is opening
       
       //----- transition management
-      if(transition_to_hc == 0) //only start transition to tc if not on its way back (transtioin to hc)
+      if(transition_to_hc == 0) //only start transition to tc if not on its way back (transition to hc)
       {
         transition_to_tc = 1; //phase 1 origin door opening
       }
@@ -955,7 +960,7 @@ void loop()
   //transitioning to HomeCage (here we don't check for multiple mice, as the way back is always free)
   if(transition_to_hc == 2)
   {
-    //for x ms we will wait and read the RFID tags/IR of R2, and afterwards decide if a mouse was present or not.
+    //for x ms we will wait and read the IR of R2, and afterwards decide if a mouse was present or not.
     if((millis() - transition_time) >= transition_delay)
     {
       //if no mouse is/was present, abort
@@ -980,6 +985,8 @@ void loop()
   //DOOR 2 OPENING
   if(sensor2_triggered || (transition_to_tc == 3))
   {
+    if(debug && sensor2_triggered){SENSORDataString = createSENSORDataString("IR2", "IR2_interrupt", SENSORDataString);}
+    
     sensor2_triggered = 0; //flag needs to be cleared (every time)
     
     if(!door2_open && !door2_moving && !door1_moving && !door1_open && //all closed and not moving
