@@ -129,7 +129,7 @@ uint8_t RFIDmode_firstrun = 1;  //to make sure the correct reader is turned on/o
 uint8_t transition_to_tc = 0;         //track transition phase to target cage
 uint8_t transition_to_hc = 0;         //track transition phase to home cage
 unsigned long transition_time = 0;    //time when both doors are closed, when mouse is in the middle
-uint8_t tc_empty = 1;                 //flag that allows a transition into the test cage
+uint8_t tc_occupied = 0;              //flag that tracks occupation of test cage
 uint8_t failsafe_triggered = 0;       //only needed for phase 2
 
 unsigned long starttime;      //start of programm
@@ -174,8 +174,12 @@ const uint8_t enable_wifi = 1;
 //before continuing. Also prints what is written to uSD to Serial as well.
 const uint8_t is_testing = 0;
 
-//if set to 1, a high amount of sensor data will be written to log
-const uint8_t debug = 1;
+//a high amount of sensor data will be written to log
+//debug == 0: logs nothing
+//debug <= 1: logs interrupts of IR1 and IR2
+//debug <= 2: as above and logs buffer_sum of all IR sensors continuously, every 500ms (all buffer events!)
+//debug <= 3: as above and logs transition management variables
+const uint8_t debug = 2;
 
 //Habituation phase
 //1: both doors always open
@@ -465,7 +469,7 @@ void setup()
   //redundant, for clarification. phase 3 doens't track tc occupation
   if(habituation_phase == 3)
   {
-    tc_empty = 1;
+    tc_occupied = 0;
   }
   
   if(habituation_phase == 3 || habituation_phase == 4)
@@ -719,6 +723,9 @@ void loop()
     }
   }
   
+  //debug only, print buffer (all)
+  if((debug>=2)&&(sb==9)){SENSORDataString=createSENSORDataString("IRB",String("IR1"+IR_door1_buffer_sum)+String("IR2"+IR_door2_buffer_sum)+String("IRM"+IR_middle_buffer_sum),SENSORDataString);}
+  
   //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
   //manage transitions ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
   //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -847,13 +854,13 @@ void loop()
   //IR sensor 1 or The Way Forward ---------------------------------------------
   if(sensor1_triggered || (transition_to_hc == 3))
   {
-    if(debug && sensor1_triggered){SENSORDataString = createSENSORDataString("IR1", "IR1_interrupt", SENSORDataString);}
+    if((debug>=1)&&sensor1_triggered){SENSORDataString=createSENSORDataString("IR1","IR1_interrupt",SENSORDataString);}
     
     sensor1_triggered = 0; //flag needs to be cleared (every time)
     
     if(!door1_open && !door1_moving && !door2_open && !door2_moving && //all closed and not moving
       (transition_to_tc == 0) && //not in transition towards testcage
-      (((transition_to_hc == 0) && (IR_middle_buffer_sum == 0) && tc_empty) || (transition_to_hc == 3))) //not transitioning to hc and middle must be empty OR already transitioning to hc
+      (((transition_to_hc == 0) && (IR_middle_buffer_sum == 0) && !tc_occupied) || (transition_to_hc == 3))) //not transitioning to hc and middle must be empty OR already transitioning to hc
     {
       //----- door management
       if(door1_counter >= 50)
@@ -876,10 +883,12 @@ void loop()
       //----- transition management
       if(transition_to_hc == 0) //only start transition to tc if not on its way back (transition to hc)
       {
+        if(debug>=3){SENSORDataString=createSENSORDataString("TM","to_tc1",SENSORDataString);}
         transition_to_tc = 1; //phase 1 origin door opening
       }
       if(transition_to_hc == 3)
       {
+        if(debug>=3){SENSORDataString=createSENSORDataString("TM","to_hc4",SENSORDataString);}
         transition_to_hc = 4; //phase 4 target door opening/open
       }
     }
@@ -926,9 +935,11 @@ void loop()
       //----- transition management
       if(transition_to_tc == 1)
       {
+        if(debug>=3){SENSORDataString=createSENSORDataString("TM","to_tc2",SENSORDataString);}
         transition_to_tc = 2; //phase 2 origin door closed
         transition_time = millis();
       }
+      if(debug>=3){SENSORDataString=createSENSORDataString("TM","to_hc0",SENSORDataString);}
       transition_to_hc = 0; //phase 5/0 target door closed
     }
   }
@@ -944,15 +955,18 @@ void loop()
       //if no mouse is/was present, abort
       if(IR_middle_buffer_sum == 0)
       {
+        if(debug>=3){SENSORDataString=createSENSORDataString("TM","to_tc0",SENSORDataString);}
         transition_to_tc = 0; //reset
       }
       //if 1 mouse is/was present, continue
       if(IR_middle_buffer_sum > 0)
       {
+        if(debug>=3){SENSORDataString=createSENSORDataString("TM","to_tc3",SENSORDataString);}
         transition_to_tc = 3; //phase 3, open door of target cage
         if((habituation_phase == 4) || (habituation_phase == 5))
         {
-          tc_empty = 0; //set flag, test cage is no longer empty
+          if(debug>=3){SENSORDataString=createSENSORDataString("TM","tc_occ=1",SENSORDataString);}
+          tc_occupied = 1; //set flag, test cage is no longer empty
         }
       }
     }
@@ -966,15 +980,18 @@ void loop()
       //if no mouse is/was present, abort
       if(IR_middle_buffer_sum == 0)
       {
+        if(debug>=3){SENSORDataString=createSENSORDataString("TM","to_hc0",SENSORDataString);}
         transition_to_hc = 0; //abort transition
       }
       //if a mouse is/was present, continue
       if(IR_middle_buffer_sum > 0)
       {
+        if(debug>=3){SENSORDataString=createSENSORDataString("TM","to_hc3",SENSORDataString);}
         transition_to_hc = 3; //phase 3, open door towards target cage
         if((habituation_phase == 4) || (habituation_phase == 5))
         {
-          tc_empty = 1; //reset flag tc is now empty (mouse returned)
+          if(debug>=3){SENSORDataString=createSENSORDataString("TM","tc_occ=0",SENSORDataString);}
+          tc_occupied = 0; //reset flag tc is now empty (mouse returned)
         }
       }
     }
@@ -985,8 +1002,7 @@ void loop()
   //DOOR 2 OPENING
   if(sensor2_triggered || (transition_to_tc == 3))
   {
-    if(debug && sensor2_triggered){SENSORDataString = createSENSORDataString("IR2", "IR2_interrupt", SENSORDataString);}
-    
+    if((debug>=1)&&sensor2_triggered){SENSORDataString=createSENSORDataString("IR2","IR2_interrupt",SENSORDataString);}
     sensor2_triggered = 0; //flag needs to be cleared (every time)
     
     if(!door2_open && !door2_moving && !door1_moving && !door1_open && //all closed and not moving
@@ -996,11 +1012,12 @@ void loop()
       //----- transition management
       if(transition_to_tc == 0) //log/transition only if not already transitioning
       {
-        SENSORDataString = createSENSORDataString("IR", "T", SENSORDataString); //create IR triggered log entry
+        if(debug>=3){SENSORDataString=createSENSORDataString("TM","to_hc1",SENSORDataString);}
         transition_to_hc = 1; //phase 1 origin door opens
       }
       if(transition_to_tc == 3)
       {
+        if(debug>=3){SENSORDataString=createSENSORDataString("TM","to_tc4",SENSORDataString);}
         transition_to_tc = 4; //phase 4 target door opens
       }
       //----- door management
@@ -1043,7 +1060,7 @@ void loop()
     }
     
     //manage failsafe for mouse that doesn't leave middle
-    if(((millis() - door2_time) >= (door2_stays_open_max+rotate2_duration)) && !tc_empty)
+    if(((millis() - door2_time) >= (door2_stays_open_max+rotate2_duration)) && tc_occupied)
     {
       //sets flag door2 closing after timeout when mouse should transition to tc
       d2_timeout = 1;
@@ -1071,9 +1088,11 @@ void loop()
       door2_open = 0;
       
       //----- transition management
+      if(debug>=3){SENSORDataString=createSENSORDataString("TM","to_tc0",SENSORDataString);}
       transition_to_tc = 0; //phase 5/0 target door closed
       if(transition_to_hc == 1) //phase 2 only if already in phase 1
       {
+        if(debug>=3){SENSORDataString=createSENSORDataString("TM","to_hc2",SENSORDataString);}
         transition_to_hc = 2; //phase 2 origin door closed
         transition_time = millis();
       }
@@ -1089,6 +1108,7 @@ void loop()
   {
     //create log entry, failsafe triggered and emulate transition: mouse has to leave towards homecage
     SENSORDataString = createSENSORDataString("FS", "failsafe1", SENSORDataString); //generate datastring
+    if(debug>=3){SENSORDataString=createSENSORDataString("TM","to_hc3",SENSORDataString);}
     transition_to_hc = 3;
   }
   
@@ -1100,9 +1120,8 @@ void loop()
       //reset flag
       d2_timeout = 0;
       //reset tc occupied
-      tc_empty = 1;
-      //generate datastring (temporary, for debugging)
-      SENSORDataString = createSENSORDataString("FS", "tc_empty set 1", SENSORDataString);
+      if(debug>=3){SENSORDataString=createSENSORDataString("TM","tc_occ=0",SENSORDataString);}
+      tc_occupied = 0;
     }
   }
   
@@ -1111,9 +1130,10 @@ void loop()
   //if a mouse is detected at IR 2, assume testcage not empty
   if((habituation_phase == 4) || (habituation_phase == 5))
   {
-    if(tc_empty && (transition_to_hc == 1))
+    if(!tc_occupied && (transition_to_hc == 1))
     {
-      tc_empty = 0; //set tc not empty, needs to be reset by completing transition to hc
+      if(debug>=3){SENSORDataString=createSENSORDataString("TM","tc_occ=1",SENSORDataString);}
+      tc_occupied = 1; //set tc not empty, needs to be reset by completing transition to hc
       SENSORDataString = createSENSORDataString("FS", "failsafe2", SENSORDataString); //generate datastring
     }
   }
