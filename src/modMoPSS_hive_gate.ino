@@ -468,7 +468,7 @@ void setup()
     tc_empty = 1;
   }
   
-  if(habituation_phase == 4)
+  if(habituation_phase == 3 || habituation_phase == 4)
   {
     transition_delay = 0;
   }
