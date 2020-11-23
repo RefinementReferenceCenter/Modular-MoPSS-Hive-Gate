@@ -431,7 +431,10 @@ void setup()
   
   dataFile.print("# Habituation phase: ");
   dataFile.println(habituation_phase);
-
+  
+  dataFile.print("# debug level: ");
+  dataFile.println(debug);
+  
   dataFile.print("# System start @ ");
   dataFile.print(nicetime());
   dataFile.print(" ");
