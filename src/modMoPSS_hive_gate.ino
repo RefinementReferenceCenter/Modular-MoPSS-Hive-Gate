@@ -238,10 +238,10 @@ const uint16_t door1_reset_up = 3000;         //distance to rotate for reset up
 const uint16_t door2_reset_up = 3000;
 const uint16_t door1_reset_down = 2050;       //distance to rotate for reset down
 const uint16_t door2_reset_down = 2050;
-const uint16_t door1_speed = 60;             //min 0, max ~230
-const uint16_t door2_speed = 60;
-const uint16_t door1_stays_open_min = 500;    //minimum open time
-const uint16_t door2_stays_open_min = 500;
+const uint16_t door1_speed = 0;             //min 0, max ~230
+const uint16_t door2_speed = 0;
+const uint16_t door1_stays_open_min = 5000;    //minimum open time
+const uint16_t door2_stays_open_min = 5000;
 const uint16_t door1_stays_open_max = 10000;  //maximum open time
 const uint16_t door2_stays_open_max = 10000;
 
