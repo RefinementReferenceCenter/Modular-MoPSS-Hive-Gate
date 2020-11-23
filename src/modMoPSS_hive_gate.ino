@@ -168,11 +168,11 @@ uint8_t current_mouse2 = 0;           //placeholder simple number for tag at rea
 //##############################################################################
 
 //if set to 1, the MoPSS will wait for a wifi connection and synchronization with network time before continuing
-const uint8_t enable_wifi = 0;
+const uint8_t enable_wifi = 1;
 
 //if set to 1, the MoPSS will wait until a serial connection via USB is established
 //before continuing. Also prints what is written to uSD to Serial as well.
-const uint8_t is_testing = 1;
+const uint8_t is_testing = 0;
 
 //a high amount of sensor data will be written to log
 //debug == 0: logs nothing
@@ -262,15 +262,15 @@ void setup()
   Serial.begin(115200);
   if(is_testing == 1)
   {
-    while(!Serial); //wait for serial connection
+    //while(!Serial); //wait for serial connection
   }
   
   //start I2C
   Wire.begin(); //atsamd can't multimaster
   
   //disable RFID readers and wait until they acknowledge
-//  disableReader(reader1);
-//  disableReader(reader2);
+  disableReader(reader1);
+  disableReader(reader2);
   
   //----- Sensors --------------------------------------------------------------
   //setup input mode for pins (redundant, for clarity)
@@ -284,11 +284,11 @@ void setup()
   //attachInterrupt(digitalPinToInterrupt(sensor3), sensor3_ISR, RISING); //IR 3 middle
   
   //----- Doors ----------------------------------------------------------------
-//  rotate(door1, door1_reset_up, 1, door1_speed);    //open door too much
-//  rotate(door2, door2_reset_up, 1, door2_speed);
-//  delay(500);
-//  rotate(door1, door1_reset_down, 0, door1_speed);  //close door to correct height
-//  rotate(door2, door2_reset_down, 0, door2_speed);
+  rotate(door1, door1_reset_up, 1, door1_speed);    //open door too much
+  rotate(door2, door2_reset_up, 1, door2_speed);
+  delay(500);
+  rotate(door1, door1_reset_down, 0, door1_speed);  //close door to correct height
+  rotate(door2, door2_reset_down, 0, door2_speed);
   
   //----- WiFi -----------------------------------------------------------------
   if(enable_wifi == 1)
@@ -744,6 +744,7 @@ void loop()
   {
     if((debug>=1)&&sensor1_triggered){SENSORDataString=createSENSORDataString("IR1","IR1_interrupt",SENSORDataString);}
     if((debug>=1)&&sensor2_triggered){SENSORDataString=createSENSORDataString("IR2","IR2_interrupt",SENSORDataString);}
+    
     sensor1_triggered = 0; //flag needs to be cleared (every time)
     sensor2_triggered = 0; //flag needs to be cleared (every time)
     failsafe_triggered = 0;
