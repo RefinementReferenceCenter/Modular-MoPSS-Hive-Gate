@@ -724,10 +724,10 @@ void loop()
       IR_door2_buffer_sum += IR_door2_buffer[i];
       IR_middle_buffer_sum += IR_middle_buffer[i];
     }
+    
+    //debug only, print buffer (all)
+    if((debug>=2)&&(sb==9)){SENSORDataString=createSENSORDataString("IRB","1:"+String(IR_door1_buffer_sum)+"2:"+String(IR_door2_buffer_sum)+"M:"+String(IR_middle_buffer_sum),SENSORDataString);}
   }
-  
-  //debug only, print buffer (all)
-  if((debug>=2)&&(sb==9)){SENSORDataString=createSENSORDataString("IRB",String("IR1"+IR_door1_buffer_sum)+String("IR2"+IR_door2_buffer_sum)+String("IRM"+IR_middle_buffer_sum),SENSORDataString);}
   
   //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
   //manage transitions ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
