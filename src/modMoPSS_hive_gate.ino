@@ -37,7 +37,8 @@ _______/                  |----- 10cm ----|                  \________
 //------------------------------------------------------------------------------
 #include <Wire.h>             //I2C communication
 #include <SD.h>               //Access to SD card
-#include <RTCZero.h>          //realtimeclock on MKR Boards
+//#include <RTCZero.h>          //realtimeclock on MKR Boards
+#include <RTClib.h>   //provides softRTC as a workaround
 #include <WiFiNINA.h>         //Wifi Chipset modified version from Adafruit
 #include <Adafruit_DotStar.h> //controlling the onboard dotstar RGB LED
 
@@ -84,7 +85,8 @@ int status = WL_IDLE_STATUS;        //initialize for first check if wifi up
 
 //RTC - Real Time Clock
 const uint8_t GMT = 1;  //current timezone (Winterzeit)
-RTCZero rtc;            //create rtc object
+//RTCZero rtc;            //create rtc object
+RTC_Millis rtc;         //create rtc object based off millis() timer
 
 //Door Modules
 const uint8_t door1 = 0x10;         //I2C address door module 1
@@ -350,7 +352,9 @@ void setup()
     strip.setPixelColor(0,255,255,255);
     strip.show();
     
-    rtc.begin();
+    //rtc.begin()
+    //set RTC to 00:00 1.1.2000
+    rtc.begin(DateTime(946684800));
     unsigned long epoch = 0; //stores the time in seconds since beginning
     
     //repeatedly contact NTP server
@@ -371,7 +375,8 @@ void setup()
       epoch = WiFi.getTime();
     }
     
-    rtc.setEpoch(epoch); //set time received from ntp server
+    //rtc.setEpoch(epoch); //set time received from ntp server
+    rtc.adjust(DateTime(epoch));
     
     Serial.print("Success! Time received: ");
     Serial.println(nicetime());
@@ -386,9 +391,10 @@ void setup()
   //Set time to zero if WiFi isn't enabled
   if(enable_wifi == 0)
   {
-    rtc.begin();
+    //rtc.begin();
+    rtc.begin(DateTime(946684800));
     Serial.println("WiFi disabled, setting time to 0");
-    rtc.setEpoch(0); //1.1.2000 00:00:00 946684800
+    //rtc.setEpoch(0); //1.1.2000 00:00:00 946684800
     WiFi.end(); //disable wifi module
   }
   
@@ -409,9 +415,10 @@ void setup()
   //----- Setup log file, and write initial configuration ----------------------
   //open file, or create if empty
   dataFile = SD.open("RFIDLOG.TXT", FILE_WRITE);
+  DateTime now = rtc.now();
   
   //get experiment start time
-  starttime = rtc.getEpoch();
+  starttime = now.unixtime();
   
   //TODO: add option to query RFID reader for version and resonant frequency
   //write current version to SD and some other startup/system related information
@@ -438,11 +445,14 @@ void setup()
   dataFile.print("# System start @ ");
   dataFile.print(nicetime());
   dataFile.print(" ");
-  dataFile.print(rtc.getDay());
+//dataFile.print(rtc.getDay());
+  dataFile.print(now.day());
   dataFile.print("-");
-  dataFile.print(rtc.getMonth());
+//dataFile.print(rtc.getMonth());
+  dataFile.print(now.month());
   dataFile.print("-");
-  dataFile.println(rtc.getYear());
+//dataFile.println(rtc.getYear());
+  dataFile.println(now.year());
   dataFile.print("# Unixtime: ");
   dataFile.println(starttime);
   dataFile.println();
@@ -690,7 +700,9 @@ void loop()
         break;  //stop looking after first match
       }
     }
-    mouse_last_seen[current_mouse2] = rtc.getEpoch();
+    //mouse_last_seen[current_mouse2] = rtc.getEpoch();
+    DateTime now = rtc.now();
+    mouse_last_seen[current_mouse2] = now.unixtime();
   }
   
   //----------------------------------------------------------------------------
@@ -1153,7 +1165,9 @@ void loop()
   if((millis() - rtccheck_time) > 600000)
   {
     rtccheck_time = millis();
-    uint32_t rtc_now = rtc.getEpoch(); //~5.8ms
+    //uint32_t rtc_now = rtc.getEpoch(); //~5.8ms
+    DateTime now = rtc.now();
+    uint32_t rtc_now = now.unixtime();
     
     //check if a mouse didn't visit the testcage -------------------------------
     for(uint8_t i = 1; i < mice; i++)
@@ -1212,10 +1226,15 @@ void loop()
 //Return time as string in HH:MM:SS format
 String nicetime()
 {
+  DateTime now = rtc.now();
+  
 	String ntime = "";
-	int h = rtc.getHours() + GMT;
-	int m = rtc.getMinutes();
-	int s = rtc.getSeconds();
+  //int h = rtc.getHours() + GMT;
+	//int m = rtc.getMinutes();
+	//int s = rtc.getSeconds();
+  int h = now.hour() + GMT;
+  int m = now.minute();
+  int s = now.second();
 
 	if (h < 10)
 	{
@@ -1254,6 +1273,7 @@ String nicetime()
 //Sensors related functions
 String createSENSORDataString(String identifier, String event, String dataString)
 {
+  DateTime now = rtc.now();
   //if datastring is not empty, add newline (for pretty formatting)
   if(dataString != 0)
   {
@@ -1262,7 +1282,8 @@ String createSENSORDataString(String identifier, String event, String dataString
   
   dataString += identifier;
   dataString += ",";
-  dataString += rtc.getEpoch();
+  //dataString += rtc.getEpoch();
+  dataString += now.unixtime();
   dataString += ",";
   dataString += ""; //here would be the tag
   dataString += ",";
@@ -1436,6 +1457,7 @@ byte compareTags(byte currenttag[], byte lasttag[])
 String createRFIDDataString(byte currenttag[], byte lasttag[], byte currenttag_present, int tagchange, String identifier)
 {
   String dataString;
+  DateTime now = rtc.now();
   
   //get country code and tag ID
   int ctCC = getCountryCode(currenttag);
@@ -1450,7 +1472,8 @@ String createRFIDDataString(byte currenttag[], byte lasttag[], byte currenttag_p
   {
     dataString += identifier;
     dataString += ",";
-    dataString += rtc.getEpoch();
+    //dataString += rtc.getEpoch();
+    dataString += now.unixtime();
     dataString += ",";
     dataString += ltCC;
     dataString += "_";
@@ -1471,7 +1494,8 @@ String createRFIDDataString(byte currenttag[], byte lasttag[], byte currenttag_p
   {
     dataString += identifier;
     dataString += ",";
-    dataString += rtc.getEpoch();
+    //dataString += rtc.getEpoch();
+    dataString += now.unixtime();
     dataString += ",";
     dataString += ctCC;
     dataString += "_";
