@@ -1,24 +1,29 @@
 //------------------------------------------------------------------------------
 /*
---- Adafruit ItsyBitsy M0 pin mapping - Hardware Revision v2.0 ---
+--- Adafruit ItsyBitsy M0 pin mapping - Hardware Revision v6.0 ---
 
- A0- [JP 9] IR 2 door 2
- A1- [JP10] IR 1 door 1
- A2- [JP 2]
- A3- [JP 3]
- A4- [JP 4]
- A5- [JP 5]
+ A0- (J5 upper 2-pin)
+ A1- Button 1,2,3
+ A2- uSD ChipSelect
+ A3- (J3 lower 3-pin)
+ A4- (J2 lower 3-pin)
+ A5- (J1 lower 3-pin)
 
- D2-
- D3-
- D4- SD chip select
- D5-
- D7-
- D9-
-D10- [JP 8] IR 3 middle
-D11- [JP 7] WiFi Busy
-D12- [JP 6] WiFi Reset
+ D0- (J4 upper debounce 2-pin)
+ D1- RTC INTerrupt/SQuareWave
+ D2- (J1 upper 3-pin)
+ D3- (J2 upper 3-pin)
+ D4- (J3 upper debounce 2-pin)
+ D5- DEBUG for timing (5V out!)
+ D7- (J4 lower 3-pin)
+ D9- (J5 lower 3-pin)
+D10- WiFi GPIO 0
+D11- WiFi Busy
+D12- WiFi Reset
 D13- WiFi CS
+
+D22- I2C SDA
+D23- I2C SCL
 
 --- Experimental Setup ---
 
@@ -37,23 +42,23 @@ _______/                  |----- 10cm ----|                  \________
 //------------------------------------------------------------------------------
 #include <Wire.h>             //I2C communication
 #include <SD.h>               //Access to SD card
-//#include <RTCZero.h>          //realtimeclock on MKR Boards
-#include <RTClib.h>   //provides softRTC as a workaround
-#include <WiFiNINA.h>         //Wifi Chipset modified version from Adafruit
-#include <Adafruit_DotStar.h> //controlling the onboard dotstar RGB LED
+#include <RTClib.h>           //(Adafruit) Provides softRTC as a workaround
+#include <WiFiNINA.h>         //(Adafruit) Wifi Chipset modified version from Adafruit
+#include <Adafruit_DotStar.h> //(Adafruit) controlling the onboard dotstar RGB LED
+#include <U8g2lib.h>          //for SSD1306 OLED Display
 
 //----- declaring variables ----------------------------------------------------
 //Current Version of the program
 //##############################################################################
 //##############################################################################
-const char HARDWARE_REV[] = "v2.0";
+const char HARDWARE_REV[] = "v6.0";
 //##############################################################################
 //##############################################################################
 
 //Sensors
-const int sensor1 = A1; //IR 1 door 1
-const int sensor2 = A0; //IR 2 door 2
-const int sensor3 = 10; //IR 3 middle
+const int sensor1 = A5; //IR 1 door 1
+const int sensor2 = A4; //IR 2 door 2
+const int sensor3 = A3; //IR 3 middle
 
 //use volatile if interrupt based
 volatile uint8_t sensor1_triggered = 0;     //IR 1 door 1
@@ -63,7 +68,7 @@ volatile uint8_t sensor2_triggered = 0;     //IR 2 door 2
 uint8_t IR_door1_buffer[10] = {};   //10 reads, every 50ms = 0.5s buffer length
 uint8_t IR_door2_buffer[10] = {};
 uint8_t IR_middle_buffer[10] = {};
-uint8_t sb = 0;                     //sensor buffer counter
+uint8_t sb = 0;                    //sensor buffer counter
 uint8_t IR_door1_buffer_sum = 0;    //holds count of IR triggers in the last 0.5s
 uint8_t IR_door2_buffer_sum = 0;
 uint8_t IR_middle_buffer_sum = 0;
@@ -74,8 +79,8 @@ volatile uint8_t ledstate = LOW;
 Adafruit_DotStar strip(1, 41, 40, DOTSTAR_BRG); //create dotstar object
 
 //SD
-const uint8_t SDcs = 4; //ChipSelect pin for SD (SPI)
-File dataFile;          //create file object
+const uint8_t SDcs = A2; //ChipSelect pin for SD (SPI)
+//File dataFile;          //create file object
 
 //WiFi
 char ssid[] = "Buchhaim";           //network name
@@ -85,12 +90,15 @@ int status = WL_IDLE_STATUS;        //initialize for first check if wifi up
 
 //RTC - Real Time Clock
 const uint8_t GMT = 1;  //current timezone (Winterzeit)
-//RTCZero rtc;            //create rtc object
-RTC_Millis rtc;         //create rtc object based off millis() timer
+RTC_DS3231 rtc;         //create rtc object
+
+//Display
+U8G2_SSD1306_128X64_NONAME_F_HW_I2C oled(U8G2_R0,U8X8_PIN_NONE,23,22); //def,reset,SCL,SDA
+uint32_t displaytime = 0;         //stores millis to time display refresh
 
 //Door Modules
-const uint8_t door1 = 0x10;         //I2C address door module 1
-const uint8_t door2 = 0x11;         //I2C address door module 2
+const uint8_t door1 = 0x10;       //I2C address door module 1
+const uint8_t door2 = 0x11;       //I2C address door module 2
 
 uint8_t door1_open = 0;           //flag if door is open
 uint8_t door2_open = 0;
@@ -112,19 +120,19 @@ const uint8_t reader2 = 0x08;     //I2C address RFID module 2
 unsigned long RFIDtime;           //used to measure time before switching to next antenna
 uint8_t RFIDtoggle = 0;           //flag used to switch to next antenna
 
-uint8_t tag[6] = {};                  //global variable to store returned tag data (limitation of C to return arrays)
-uint8_t tag1_present = 0;             //flag that indicates if tag was present during read cycle
+uint8_t tag[6] = {};              //global variable to store returned tag data (limitation of C to return arrays)
+uint8_t tag1_present = 0;         //flag that indicates if tag was present during read cycle
 uint8_t tag2_present = 0;
-uint8_t reader1_cycle = 0;            //toggles flag if a read cycle has just happened (not automatically cleared)
+uint8_t reader1_cycle = 0;        //toggles flag if a read cycle has just happened (not automatically cleared)
 uint8_t reader2_cycle = 0;
-uint8_t currenttag1[6] = {};          //saves id of the tag that was read during the current read cycle
+uint8_t currenttag1[6] = {};      //saves id of the tag that was read during the current read cycle
 uint8_t currenttag2[6] = {};
-uint8_t lasttag1[6] = {};             //saves id of the tag that was read during the previous read cycle
+uint8_t lasttag1[6] = {};         //saves id of the tag that was read during the previous read cycle
 uint8_t lasttag2[6] = {};
 
 //TODO: test switching modes
 uint8_t RFIDmode = 1;           //select mode to operate in: 1-alternate, 2-reader1, 3-reader2
-uint8_t RFIDmode_firstrun = 1;  //to make sure the correct reader is turned on/off
+uint8_t RFIDmode_firstrun = 1;   //to make sure the correct reader is turned on/off
 
 //Experiment variables
 //0 = no transition, 1 = origin door opened, 2 = origin door closed, 3 = checks mice present, 4 = target door closing
@@ -134,11 +142,11 @@ unsigned long transition_time = 0;    //time when both doors are closed, when mo
 uint8_t tc_occupied = 0;              //flag that tracks occupation of test cage
 uint8_t failsafe_triggered = 0;       //only needed for phase 2
 
-unsigned long starttime;      //start of programm
-unsigned long rtccheck_time;  //time the rtc was checked last
+unsigned long starttime;        //start of programm
+unsigned long rtccheck_time;    //time the rtc was checked last
 
-uint8_t d2_timeout = 0;       //flag stores if d2 closed from timeout if transitioning to tc
-unsigned long d2_timeout_time;     //stores time when timeout happened
+uint8_t d2_timeout = 0;         //flag stores if d2 closed from timeout if transitioning to tc
+unsigned long d2_timeout_time;  //stores time when timeout happened
 
 //Mice tags
 const uint8_t mice = 15;           //number of mice in experiment (add 1 for mouse 0, add 2 for test-mice)
@@ -160,28 +168,31 @@ const uint8_t mouse_library[mice][6] = {
   {0x0E,0x67,0xF7,0x90,0x2E,0xE1}  //mouse 14 bleistiftmaus
 };
 
-uint8_t update_current_mouse1 = 1;    //flag for updating current mouse at reader 1
-uint8_t update_current_mouse2 = 1;    //flag for updating current mouse at reader 2
-uint8_t current_mouse1 = 0;           //placeholder simple number for tag at reader 1
-uint8_t current_mouse2 = 0;           //placeholder simple number for tag at reader 2
+uint8_t update_current_mouse1 = 1; //flag for updating current mouse at reader 1
+uint8_t update_current_mouse2 = 1; //flag for updating current mouse at reader 2
+uint8_t current_mouse1 = 0;        //placeholder simple number for tag at reader 1
+uint8_t current_mouse2 = 0;        //placeholder simple number for tag at reader 2
+
+uint32_t oledt1 = 0;
+uint32_t oledt2 = 0;
 
 //##############################################################################
 //#####   U S E R   C O N F I G  ###############################################
 //##############################################################################
 
 //if set to 1, the MoPSS will wait for a wifi connection and synchronization with network time before continuing
-const uint8_t enable_wifi = 1;
+const uint8_t enable_wifi = 0;
 
 //if set to 1, the MoPSS will wait until a serial connection via USB is established
 //before continuing. Also prints what is written to uSD to Serial as well.
-const uint8_t is_testing = 0;
+const uint8_t is_testing = 1;
 
 //a high amount of sensor data will be written to log
 //debug == 0: logs nothing
 //debug <= 1: logs interrupts of IR1 and IR2
 //debug <= 2: as above and logs buffer_sum of all IR sensors continuously, every 500ms (all buffer events!)
 //debug <= 3: as above and logs transition management variables
-const uint8_t debug = 2;
+const uint8_t debug = 1;
 
 //Habituation phase
 //1: both doors always open
@@ -189,7 +200,7 @@ const uint8_t debug = 2;
 //3: doors closed, singular mouse transition, 0sec. transition time, no mouse limit for test cage
 //4: doors closed, singular mouse transition, 0sec. transition time, 1 mouse limit for test cage
 //5: like 4, but transition time is 3sec.
-uint32_t habituation_phase = 2;
+uint32_t habituation_phase = 1;
 
 //For easier data evaluation or feedback, mouse participation and warnings can be set here
 //0 = does not participate; 1 = regular participation; 2 = warning; 3 = excluded from experiment
@@ -253,7 +264,7 @@ const uint16_t door2_stays_open_max = 10000;
 void setup()
 {
   //----- DEBUGGING ------------------------------------------------------------
-  pinMode(7,OUTPUT); //to allow port toggle for timing purposes
+  pinMode(5,OUTPUT); //to allow port toggle for timing purposes D5 PA15
   
   //Set up RGB LED on board, and turn it off -----------------------------------
   strip.begin(); //Initialize pins for output
@@ -265,15 +276,25 @@ void setup()
   if(is_testing == 1)
   {
     //while(!Serial); //wait for serial connection
+    //Serial.println("alive");
   }
   
   //start I2C
   Wire.begin(); //atsamd can't multimaster
   
+  //----- Display --------------------------------------------------------------
+  u8g2_SetI2CAddress(&oled,0xf0);      //I2C address of display multiplied by 2 (0x78 * 2)
+  oled.begin();
+  oled.setFont(u8g2_font_6x10_mf); //set font w5 h10
+  OLEDprint(0,0,1,1,">>> Module Setup <<<");
+
+  //----- RFID readers ---------------------------------------------------------
+  OLEDprint(1,0,0,1,"Setup RFID readers...");
   //disable RFID readers and wait until they acknowledge
   disableReader(reader1);
   disableReader(reader2);
-  
+  OLEDprint(2,0,0,1,"-Done");
+
   //----- Sensors --------------------------------------------------------------
   //setup input mode for pins (redundant, for clarity)
   pinMode(sensor1,INPUT); //IR 1 door 1
@@ -286,92 +307,72 @@ void setup()
   //attachInterrupt(digitalPinToInterrupt(sensor3), sensor3_ISR, RISING); //IR 3 middle
   
   //----- Doors ----------------------------------------------------------------
+  OLEDprint(3,0,0,1,"Setup Doors...");
   rotate(door1, door1_reset_up, 1, door1_speed);    //open door too much
   rotate(door2, door2_reset_up, 1, door2_speed);
   delay(500);
   rotate(door1, door1_reset_down, 0, door1_speed);  //close door to correct height
   rotate(door2, door2_reset_down, 0, door2_speed);
-  
+  OLEDprint(4,0,0,1,"-Done");
+  delay(1000); //small delay before clearing display in next step
   //----- WiFi -----------------------------------------------------------------
+  OLEDprint(0,0,1,1,">>>  WiFi Setup  <<<");
+  
   if(enable_wifi == 1)
 	{
-		Serial.println("----- WiFi Setup -----"); // check if the WiFi module work
+		Serial.println("----- WiFi Setup -----"); //check if the WiFi module works
+    OLEDprint(1,0,0,1,"Connect to WiFi...");
+    OLEDprint(2,0,0,1,"SSID:Buchhaim");
+    OLEDprint(3,0,0,1,"Key:2416AdZk3881QPnh+");
     
-    WiFi.setPins(13, 11, 12, -1, &SPIWIFI);
+    WiFi.setPins(13, 11, 12, -1, &SPIWIFI); //function only available in adafruit WiFi library
     
 		if(WiFi.status() == WL_NO_MODULE)
     {
 			Serial.println("WiFi chip not working/disconnected, program stopped!");
+      OLEDprint(4,0,0,1,"---WiFi not working");
+      OLEDprint(5,0,0,1,"---program stopped!");
 			criticalerror(); //don't continue
 		}
     
     //attempt to connect to WiFi network:
     Serial.print("Connecting to SSID: ");
     Serial.println(ssid);
+    OLEDprint(4,0,0,1,"-Connecting: Try:");
     uint8_t numberOfTries = 0;
     while(status != WL_CONNECTED)
     {
       numberOfTries++;
       Serial.print("Waiting to connect, attempt No.: ");
       Serial.println(numberOfTries);
-
+      OLEDprint(4,17,0,1,numberOfTries);
+      
       //Connect to WPA/WPA2 network
       status = WiFi.begin(ssid, pass);
 
-      //wait 10 seconds for each connection attempt and slowly blink LED:
-      delay(2000);
-      strip.setPixelColor(0,0,0,0);
-      strip.show();
-      delay(500);
-      strip.setPixelColor(0,255,255,255);
-      strip.show();
-      delay(2000);
-      strip.setPixelColor(0,0,0,0);
-      strip.show();
-      delay(500);
-      strip.setPixelColor(0,255,255,255);
-      strip.show();
-      delay(2000);
-      strip.setPixelColor(0,0,0,0);
-      strip.show();
-      delay(500);
-      strip.setPixelColor(0,255,255,255);
-      strip.show();
-      delay(2000);
-      strip.setPixelColor(0,0,0,0);
-      strip.show();
-      delay(500);
-      strip.setPixelColor(0,255,255,255);
-      strip.show();
+      //wait 10 seconds between each connection attempt
+      delay(10000);
     }
     Serial.println("Successfully connected!");
+    OLEDprint(4,0,0,1,"-Connecting: Success! ");
     
     //----- Real Time Clock ------------------------------------------------------
     Serial.println("----- RTC Setup -----");
     
-    strip.setPixelColor(0,255,255,255);
-    strip.show();
-    
-    //rtc.begin()
-    //set RTC to 00:00 1.1.2000
-    rtc.begin(DateTime(946684800));
     unsigned long epoch = 0; //stores the time in seconds since beginning
     
     //repeatedly contact NTP server
     Serial.println("Attempting to reach NTP server");
+    OLEDprint(5,0,0,1,"-Sync RTC: Try:");
     numberOfTries = 0;
     while(epoch == 0)
     {
+      numberOfTries++;
       Serial.print("Attempt No. ");
       Serial.println(numberOfTries);
-      numberOfTries++;
-      delay(500);
-      strip.setPixelColor(0,0,0,0);
-      strip.show();
-      delay(500);
-      strip.setPixelColor(0,255,255,255);
-      strip.show();
-
+      OLEDprint(5,16,0,1,numberOfTries);
+      
+      delay(1000);
       epoch = WiFi.getTime();
     }
     
@@ -380,9 +381,8 @@ void setup()
     
     Serial.print("Success! Time received: ");
     Serial.println(nicetime());
-    
-    strip.setPixelColor(0,0,0,0);
-    strip.show();
+    OLEDprint(5,0,0,1,"-Sync RTC: Success!   ");
+
     
     //disable wifi module after fetching time to conserve power (~83mA)
     WiFi.end();
@@ -391,30 +391,38 @@ void setup()
   //Set time to zero if WiFi isn't enabled
   if(enable_wifi == 0)
   {
+    OLEDprint(1,0,0,1,"WiFi disabled");
+    OLEDprint(2,0,0,1,"Setting time to:");
+    OLEDprint(3,0,0,1,"01.01.2000 00:00:00");
     //rtc.begin();
-    rtc.begin(DateTime(946684800));
+    rtc.adjust(DateTime(946684800));
     Serial.println("WiFi disabled, setting time to 0");
     //rtc.setEpoch(0); //1.1.2000 00:00:00 946684800
     WiFi.end(); //disable wifi module
+    delay(1000); //short delay to allow reading of scrren
   }
   
   //----- Setup SD Card --------------------------------------------------------
   Serial.println("----- SD-Card Setup -----");
-  // see if the card is present and can be initialized:
-  if (!SD.begin(SDcs))
-  {
-    Serial.println("Card failed, or not present, program stopped!");
-    //Stop program if uSD was not detected/faulty (needs to be FAT32 format):
-    criticalerror();
-  }
-  else
-  {
-    Serial.println("SD card initialized successfully!");
-  }
+  OLEDprint(0,0,1,1,">>>  uSD  Setup  <<<");
+  //see if the card is present and can be initialized:
+  // if (!SD.begin(SDcs))
+  // {
+  //   Serial.println("Card failed, or not present, program stopped!");
+  //   //Stop program if uSD was not detected/faulty (needs to be FAT32 format):
+  //   OLEDprint(1,0,0,1,"uSD Card failed!");
+  //   OLEDprint(2,0,0,1,"program stopped");
+  //   criticalerror();
+  // }
+  // else
+  // {
+  //   Serial.println("SD card initialized successfully!");
+  //   OLEDprint(1,0,0,1,"-setup uSD: Success!");
+  // }
   
   //----- Setup log file, and write initial configuration ----------------------
   //open file, or create if empty
-  dataFile = SD.open("RFIDLOG.TXT", FILE_WRITE);
+//  dataFile = SD.open("RFIDLOG.TXT", FILE_WRITE);
   DateTime now = rtc.now();
   
   //get experiment start time
@@ -422,42 +430,42 @@ void setup()
   
   //TODO: add option to query RFID reader for version and resonant frequency
   //write current version to SD and some other startup/system related information
-  dataFile.println("");
-  dataFile.print("# Modular MoPSS Hive version: ");
-  dataFile.println("not yet implemented");
-  
-  dataFile.print("# Door Module 1 version: ");
-  dataFile.println("not yet implemented");
-  dataFile.print("# Door Module 2 version: ");
-  dataFile.println("not yet implemented");
-
-  dataFile.print("# RFID Module 1 version: ");
-  dataFile.println("not yet implemented");
-  dataFile.print("# RFID Module 2 version: ");
-  dataFile.println("not yet implemented");
-  
-  dataFile.print("# Habituation phase: ");
-  dataFile.println(habituation_phase);
-  
-  dataFile.print("# debug level: ");
-  dataFile.println(debug);
-  
-  dataFile.print("# System start @ ");
-  dataFile.print(nicetime());
-  dataFile.print(" ");
-//dataFile.print(rtc.getDay());
-  dataFile.print(now.day());
-  dataFile.print("-");
-//dataFile.print(rtc.getMonth());
-  dataFile.print(now.month());
-  dataFile.print("-");
-//dataFile.println(rtc.getYear());
-  dataFile.println(now.year());
-  dataFile.print("# Unixtime: ");
-  dataFile.println(starttime);
-  dataFile.println();
-  
-  dataFile.flush();
+//   dataFile.println("");
+//   dataFile.print("# Modular MoPSS Hive version: ");
+//   dataFile.println("not yet implemented");
+//
+//   dataFile.print("# Door Module 1 version: ");
+//   dataFile.println("not yet implemented");
+//   dataFile.print("# Door Module 2 version: ");
+//   dataFile.println("not yet implemented");
+//
+//   dataFile.print("# RFID Module 1 version: ");
+//   dataFile.println("not yet implemented");
+//   dataFile.print("# RFID Module 2 version: ");
+//   dataFile.println("not yet implemented");
+//
+//   dataFile.print("# Habituation phase: ");
+//   dataFile.println(habituation_phase);
+//
+//   dataFile.print("# debug level: ");
+//   dataFile.println(debug);
+//
+//   dataFile.print("# System start @ ");
+//   dataFile.print(nicetime());
+//   dataFile.print(" ");
+// //dataFile.print(rtc.getDay());
+//   dataFile.print(now.day());
+//   dataFile.print("-");
+// //dataFile.print(rtc.getMonth());
+//   dataFile.print(now.month());
+//   dataFile.print("-");
+// //dataFile.println(rtc.getYear());
+//   dataFile.println(now.year());
+//   dataFile.print("# Unixtime: ");
+//   dataFile.println(starttime);
+//   dataFile.println();
+//
+//   dataFile.flush();
   
   //---- setup experiment variables --------------------------------------------
   
@@ -504,8 +512,8 @@ void loop()
   //>=80ms are required to cold-start a tag for a successful read (at reduced range)
   //>=90ms for full range, increasing further only seems to increase range due to noise
   //rather than requirements of the tag and coil for energizing (100ms is chosen as a compromise)
-  //REG_PORT_OUTSET0 = PORT_PA21;
-  //REG_PORT_OUTCLR0 = PORT_PA21;
+  //REG_PORT_OUTSET0 = PORT_PA15;
+  //REG_PORT_OUTCLR0 = PORT_PA15;
   
   // make a string for assembling the data to log:
   String RFIDdataString = "";
@@ -1160,6 +1168,23 @@ void loop()
   //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
   //do other stuff (every now and then) ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
   //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+  if((millis() - displaytime) > 1000)
+  {
+    displaytime = millis();
+    oled.clearBuffer();             //clear display
+
+    //display current time from RTC and timezone
+    OLEDprint(0,0,0,0,"Time:");
+    OLEDprint(0,6,0,0,nicetime());
+    OLEDprint(0,15,0,0,"GMT");
+    OLEDprint(0,19,0,0,GMT);
+    
+    //display stuff
+    
+    
+    oled.sendBuffer();              //update display
+  }
   
   //do stuff every 10 minutes (that needs rtc) ---------------------------------
   if((millis() - rtccheck_time) > 600000)
@@ -1198,8 +1223,8 @@ void loop()
   if(SENSORDataString.length() != 0)
   {
     //append Datastring to file
-    dataFile.println(SENSORDataString);
-    dataFile.flush();
+    //dataFile.println(SENSORDataString);
+    //dataFile.flush();
     if(is_testing == 1)
     {
       Serial.println(SENSORDataString);
@@ -1209,8 +1234,8 @@ void loop()
   if(RFIDdataString.length() != 0) //13.7ms
 	{
 		//append Datastring to file
-		dataFile.println(RFIDdataString);
-		dataFile.flush();
+		//dataFile.println(RFIDdataString);
+		//dataFile.flush();
 		if(is_testing == 1)
 		{
 			Serial.println(RFIDdataString);
@@ -1294,6 +1319,42 @@ String createSENSORDataString(String identifier, String event, String dataString
   return dataString;
 }
 
+//Helper for printing to OLED Display ------------------------------------------
+void OLEDprint(uint8_t row, uint8_t column, uint8_t clear, uint8_t update, String text)
+{
+  if(clear)
+  {
+    oled.clearBuffer();   //clear screen
+  }
+  
+  oled.setCursor(column * 6,(row * 10) + 10); //max row 0-5, max col 0-20
+  oled.print(text);
+  
+  if(update)
+  {
+    oled.sendBuffer();
+  }
+}
+
+void OLEDprint(uint8_t row, uint8_t column, uint8_t clear, uint8_t update, int32_t number)
+{
+  if(clear)
+  {
+    oled.clearBuffer();   //clear screen
+  }
+  
+  oled.setCursor(column * 6,(row * 10) + 10); //max row 0-5, max col 0-20
+  oled.print(number);
+  
+  if(update)
+  {
+    oled.sendBuffer();
+  }
+}
+
+
+
+
 //Interrupt service routines ---------------------------------------------------
 void sensor1_ISR()
 {
@@ -1308,7 +1369,7 @@ void sensor3_ISR()
   sensor3_triggered = 1;
 }
 
-//RFID tag realted functions ---------------------------------------------------
+//RFID tag related functions ---------------------------------------------------
 //get ID in string format
 String getID(uint8_t in[6])
 {
