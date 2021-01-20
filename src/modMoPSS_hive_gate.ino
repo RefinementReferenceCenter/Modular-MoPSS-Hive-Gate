@@ -276,7 +276,7 @@ void setup()
   if(is_testing == 1)
   {
     //while(!Serial); //wait for serial connection
-    //Serial.println("alive");
+    Serial.println("alive");
   }
   
   //start I2C
@@ -302,17 +302,17 @@ void setup()
   pinMode(sensor3,INPUT); //IR 3 middle
   
   //attach interrupt to all pins (must not analogRead interruptpins or else interrupt stops working!)
-  attachInterrupt(digitalPinToInterrupt(sensor1), sensor1_ISR, RISING); //IR 1 door 1
-  attachInterrupt(digitalPinToInterrupt(sensor2), sensor2_ISR, RISING); //IR 2 door 2
+//  attachInterrupt(digitalPinToInterrupt(sensor1), sensor1_ISR, FALLING); //IR 1 door 1
+//  attachInterrupt(digitalPinToInterrupt(sensor2), sensor2_ISR, FALLING); //IR 2 door 2
   //attachInterrupt(digitalPinToInterrupt(sensor3), sensor3_ISR, RISING); //IR 3 middle
   
   //----- Doors ----------------------------------------------------------------
   OLEDprint(3,0,0,1,"Setup Doors...");
-  rotate(door1, door1_reset_up, 1, door1_speed);    //open door too much
-  rotate(door2, door2_reset_up, 1, door2_speed);
+  rotate(door1, 1, door1_reset_up, 1, door1_speed);    //open door too much
+  //rotate(door2, 1, door2_reset_up, 1, door2_speed);
   delay(500);
-  rotate(door1, door1_reset_down, 0, door1_speed);  //close door to correct height
-  rotate(door2, door2_reset_down, 0, door2_speed);
+  rotate(door1, 1, door1_reset_down, 0, door1_speed);  //close door to correct height
+  //rotate(door2, 1, door2_reset_down, 0, door2_speed);
   OLEDprint(4,0,0,1,"-Done");
   delay(1000); //small delay before clearing display in next step
   //----- WiFi -----------------------------------------------------------------
@@ -482,8 +482,8 @@ void setup()
   if(habituation_phase == 1)
   {
     uint16_t mt; //move time of doors
-    mt = rotate(door1, door1_reset_up, 1, door1_speed); //open door too much
-    rotate(door2, door2_reset_up, 1, door2_speed);
+    mt = rotate(door1, 1, door1_reset_up, 1, door1_speed); //open door too much
+//    rotate(door2, 1, door2_reset_up, 1, door2_speed); TODO: remove comment
     delay(mt); //wait for doors to finish moving
   }
   
@@ -773,21 +773,21 @@ void loop()
     {
       if(door1_counter >= 50) //since both move, door1_counter is enough
       {
-        rotate1_duration = rotate(door1, door1_reset_up, 1, door1_speed); //open door too much
+        rotate1_duration = rotate(door1, 1, door1_reset_up, 1, door1_speed); //open door too much
         SENSORDataString = createSENSORDataString("D1", "Opening_reset", SENSORDataString); //generate datastring
         door1_counter = 0;
         door1_reset = 1;
-        rotate2_duration = rotate(door2, door2_reset_up, 1, door2_speed); //open door too much
+        rotate2_duration = rotate(door2, 1, door2_reset_up, 1, door2_speed); //open door too much
         SENSORDataString = createSENSORDataString("D2", "Opening_reset", SENSORDataString); //generate datastring
         door2_counter = 0;
         door2_reset = 1;
       }
       else
       {
-        rotate1_duration = rotate(door1, door1_needed_rotation, 1, door1_speed); //open door
+        rotate1_duration = rotate(door1, 1, door1_needed_rotation, 1, door1_speed); //open door
         SENSORDataString = createSENSORDataString("D1", "Opening", SENSORDataString); //generate datastring
         door1_counter++;
-        rotate2_duration = rotate(door2, door2_needed_rotation, 1, door2_speed); //open door
+        rotate2_duration = rotate(door2, 1, door2_needed_rotation, 1, door2_speed); //open door
         SENSORDataString = createSENSORDataString("D2", "Opening", SENSORDataString); //generate datastring
         door2_counter++;
       }
@@ -808,18 +808,18 @@ void loop()
     //----- door management
     if(door1_reset)
     {
-      rotate1_duration = rotate(door1, door1_reset_down, 0, door1_speed); //close door to correct height after reset_up
+      rotate1_duration = rotate(door1, 1, door1_reset_down, 0, door1_speed); //close door to correct height after reset_up
       SENSORDataString = createSENSORDataString("D1", "Closing_reset", SENSORDataString); //maximum logging
       door1_reset = 0;
-      rotate2_duration = rotate(door2, door2_reset_down, 0, door2_speed); //close door to correct height after reset_up
+      rotate2_duration = rotate(door2, 1, door2_reset_down, 0, door2_speed); //close door to correct height after reset_up
       SENSORDataString = createSENSORDataString("D2", "Closing_reset", SENSORDataString); //maximum logging
       door2_reset = 0;
     }
     else
     {
-      rotate1_duration = rotate(door1, door1_needed_rotation, 0, door1_speed); //close door
+      rotate1_duration = rotate(door1, 1, door1_needed_rotation, 0, door1_speed); //close door
       SENSORDataString = createSENSORDataString("D1", "Closing", SENSORDataString); //maximum logging
-      rotate2_duration = rotate(door2, door2_needed_rotation, 0, door2_speed); //close door
+      rotate2_duration = rotate(door2, 1, door2_needed_rotation, 0, door2_speed); //close door
       SENSORDataString = createSENSORDataString("D2", "Closing", SENSORDataString); //maximum logging
     }
     door1_time = millis();
@@ -891,14 +891,14 @@ void loop()
       //----- door management
       if(door1_counter >= 50)
       {
-        rotate1_duration = rotate(door1, door1_reset_up, 1, door1_speed); //open door too much
+        rotate1_duration = rotate(door1, 1, door1_reset_up, 1, door1_speed); //open door too much
         SENSORDataString = createSENSORDataString("D1", "Opening_reset", SENSORDataString); //generate datastring
         door1_counter = 0;
         door1_reset = 1;
       }
       else
       {
-        rotate1_duration = rotate(door1, door1_needed_rotation, 1, door1_speed); //open door too much
+        rotate1_duration = rotate(door1, 1, door1_needed_rotation, 1, door1_speed); //open door too much
         SENSORDataString = createSENSORDataString("D1", "Opening", SENSORDataString); //generate datastring
         door1_counter++;
       }
@@ -930,13 +930,13 @@ void loop()
     //----- door management
     if(door1_reset)
     {
-      rotate1_duration = rotate(door1, door1_reset_down, 0, door1_speed); //close door to correct height after reset_up
+      rotate1_duration = rotate(door1, 1, door1_reset_down, 0, door1_speed); //close door to correct height after reset_up
       SENSORDataString = createSENSORDataString("D1", "Closing_reset", SENSORDataString); //maximum logging
       door1_reset = 0;
     }
     else
     {
-      rotate1_duration = rotate(door1, door1_needed_rotation, 0, door1_speed); //close door
+      rotate1_duration = rotate(door1, 1, door1_needed_rotation, 0, door1_speed); //close door
       SENSORDataString = createSENSORDataString("D1", "Closing", SENSORDataString); //maximum logging
     }
     door1_time = millis();
@@ -1049,14 +1049,14 @@ void loop()
       //----- door management
       if(door2_counter >= 50)
       {
-        rotate2_duration = rotate(door2, door2_reset_up, 1, door2_speed); //open door too much
+        rotate2_duration = rotate(door2, 1, door2_reset_up, 1, door2_speed); //open door too much
         SENSORDataString = createSENSORDataString("D2", "Opening_reset", SENSORDataString); //generate datastring
         door2_counter = 0;
         door2_reset = 1;
       }
       else
       {
-        rotate2_duration = rotate(door2, door2_needed_rotation, 1, door2_speed); //open door
+        rotate2_duration = rotate(door2, 1, door2_needed_rotation, 1, door2_speed); //open door
         SENSORDataString = createSENSORDataString("D2", "Opening", SENSORDataString); //generate datastring
         door2_counter++;
       }
@@ -1075,13 +1075,13 @@ void loop()
     //----- door management
     if(door2_reset)
     {
-      rotate2_duration = rotate(door2, door2_reset_down, 0, door2_speed); //close door to correct height after reset_up
+      rotate2_duration = rotate(door2, 1, door2_reset_down, 0, door2_speed); //close door to correct height after reset_up
       SENSORDataString = createSENSORDataString("D2", "Closing_reset", SENSORDataString); //maximum logging
       door2_reset = 0;
     }
     else
     {
-      rotate2_duration = rotate(door2, door2_needed_rotation, 0, door2_speed); //close door
+      rotate2_duration = rotate(door2, 1, door2_needed_rotation, 0, door2_speed); //close door
       SENSORDataString = createSENSORDataString("D2", "Closing", SENSORDataString); //maximum logging
     }
     
@@ -1181,16 +1181,22 @@ void loop()
     OLEDprint(0,19,0,0,GMT);
     
     //display stuff
-    
+    //OLEDprint(1,0,0,0,analogRead(A5));
+    //OLEDprint(2,0,0,0,analogRead(A3));
+    OLEDprint(3,0,0,0,SENSORDataString);
     
     oled.sendBuffer();              //update display
+    
+    rotate(door1, 1, 3200, 0, 55);
+    delay(2000);
+    rotate(door1, 2, 1600, 1, 55);
+    
   }
   
   //do stuff every 10 minutes (that needs rtc) ---------------------------------
   if((millis() - rtccheck_time) > 600000)
   {
     rtccheck_time = millis();
-    //uint32_t rtc_now = rtc.getEpoch(); //~5.8ms
     DateTime now = rtc.now();
     uint32_t rtc_now = now.unixtime();
     
@@ -1351,9 +1357,6 @@ void OLEDprint(uint8_t row, uint8_t column, uint8_t clear, uint8_t update, int32
     oled.sendBuffer();
   }
 }
-
-
-
 
 //Interrupt service routines ---------------------------------------------------
 void sensor1_ISR()
@@ -1570,9 +1573,9 @@ String createRFIDDataString(byte currenttag[], byte lasttag[], byte currenttag_p
 
 //rotate steppers --------------------------------------------------------------
 //returns duration until rotation is finished in milliseconds
-uint16_t rotate(uint8_t address, uint32_t steps, uint8_t direction, uint8_t speed)
+uint16_t rotate(uint8_t address, uint8_t stepper, uint32_t steps, uint8_t direction, uint8_t speed)
 {
-  uint8_t sendbuffer[6] = {0,0,0,0,0,0};
+  uint8_t sendbuffer[7] = {0,0,0,0,0,0,0};
   
   //steps: 3200 steps == 1 revolution
   //create 4 bytes from 32bit variable
@@ -1585,12 +1588,13 @@ uint16_t rotate(uint8_t address, uint32_t steps, uint8_t direction, uint8_t spee
   //speed: 0-255 (<= 230 recommended)
   sendbuffer[4] = direction;
   sendbuffer[5] = 255 - speed;
+  sendbuffer[6] = stepper;
   
   int send_status = 1;
   while(send_status != 0)
   {
     Wire.beginTransmission(address); //address
-    for(uint8_t i = 0; i < 6; i++)
+    for(uint8_t i = 0; i < 7; i++)
     {
       Wire.write(sendbuffer[i]);
     }
