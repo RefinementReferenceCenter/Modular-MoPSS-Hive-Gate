@@ -376,13 +376,11 @@ void setup()
       epoch = WiFi.getTime();
     }
     
-    //rtc.setEpoch(epoch); //set time received from ntp server
     rtc.adjust(DateTime(epoch));
     
     Serial.print("Success! Time received: ");
     Serial.println(nicetime());
     OLEDprint(5,0,0,1,"-Sync RTC: Success!   ");
-
     
     //disable wifi module after fetching time to conserve power (~83mA)
     WiFi.end();
@@ -1181,16 +1179,11 @@ void loop()
     OLEDprint(0,19,0,0,GMT);
     
     //display stuff
-    //OLEDprint(1,0,0,0,analogRead(A5));
-    //OLEDprint(2,0,0,0,analogRead(A3));
-    OLEDprint(3,0,0,0,SENSORDataString);
+    OLEDprint(1,0,0,0,analogRead(A5));
+    OLEDprint(2,0,0,0,analogRead(A3));
+    //OLEDprint(3,0,0,0,SENSORDataString);
     
     oled.sendBuffer();              //update display
-    
-    rotate(door1, 1, 3200, 0, 55);
-    delay(2000);
-    rotate(door1, 2, 1600, 1, 55);
-    
   }
   
   //do stuff every 10 minutes (that needs rtc) ---------------------------------
