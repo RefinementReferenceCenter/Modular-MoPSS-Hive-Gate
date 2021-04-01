@@ -392,7 +392,7 @@ void setup()
     OLEDprint(1,0,0,1,"WiFi disabled");
     OLEDprint(2,0,0,1,"Setting time to:");
     OLEDprint(3,0,0,1,"01.01.2000 00:00:00");
-    //rtc.begin();
+    WiFi.setPins(13, 11, 12, -1, &SPIWIFI); //function only available in adafruit WiFi library
     rtc.adjust(DateTime(946684800));
     Serial.println("WiFi disabled, setting time to 0");
     //rtc.setEpoch(0); //1.1.2000 00:00:00 946684800
