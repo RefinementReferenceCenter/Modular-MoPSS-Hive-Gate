@@ -80,7 +80,7 @@ Adafruit_DotStar strip(1, 41, 40, DOTSTAR_BRG); //create dotstar object
 
 //SD
 const uint8_t SDcs = A2; //ChipSelect pin for SD (SPI)
-//File dataFile;          //create file object
+File dataFile;          //create file object
 
 //WiFi
 char ssid[] = "Buchhaim";           //network name
@@ -112,6 +112,22 @@ uint16_t door1_counter = 0;       //counter how often door was opened (used to r
 uint16_t door2_counter = 0;
 uint8_t door1_reset = 0;          //flag is set if door needs to be "re-set"
 uint8_t door2_reset = 0;
+
+unsigned long door1_poll_time;     //time when we should query the door module for a status update
+unsigned long door2_poll_time;
+
+//names for door module control
+const uint8_t top = 0;
+const uint8_t upper = 1;
+const uint8_t middle = 2;
+const uint8_t lower = 3;
+const uint8_t bottom = 4;
+
+const uint8_t up = 0;
+const uint8_t down = 1;
+
+uint8_t door1_IR_state[7]; //0 IR_top, IR_upper, IR_middle, IR_lower, IR_bottom, IR_barrier_rx, 6 IR_barrier_tx
+uint8_t door2_IR_state[7];
 
 //RFID
 const uint8_t reader1 = 0x09;     //I2C address RFID module 1
@@ -176,6 +192,10 @@ uint8_t current_mouse2 = 0;        //placeholder simple number for tag at reader
 uint32_t oledt1 = 0;
 uint32_t oledt2 = 0;
 
+//TESTING
+uint8_t manual_trigger = 0; //manually trigger gate-events for testing
+uint32_t test_timer = 0;
+
 //##############################################################################
 //#####   U S E R   C O N F I G  ###############################################
 //##############################################################################
@@ -200,7 +220,7 @@ const uint8_t debug = 1;
 //3: doors closed, singular mouse transition, 0sec. transition time, no mouse limit for test cage
 //4: doors closed, singular mouse transition, 0sec. transition time, 1 mouse limit for test cage
 //5: like 4, but transition time is 3sec.
-uint32_t habituation_phase = 1;
+uint32_t habituation_phase = 2;
 
 //For easier data evaluation or feedback, mouse participation and warnings can be set here
 //0 = does not participate; 1 = regular participation; 2 = warning; 3 = excluded from experiment
@@ -253,8 +273,8 @@ const uint16_t door1_reset_down = 2050;       //distance to rotate for reset dow
 const uint16_t door2_reset_down = 2050;
 const uint16_t door1_speed = 0;             //min 0, max ~230
 const uint16_t door2_speed = 0;
-const uint16_t door1_stays_open_min = 5000;    //minimum open time
-const uint16_t door2_stays_open_min = 5000;
+const uint16_t door1_stays_open_min = 3000;    //minimum open time
+const uint16_t door2_stays_open_min = 3000;
 const uint16_t door1_stays_open_max = 10000;  //maximum open time
 const uint16_t door2_stays_open_max = 10000;
 
@@ -283,7 +303,7 @@ void setup()
   Wire.begin(); //atsamd can't multimaster
   
   //----- Display --------------------------------------------------------------
-  u8g2_SetI2CAddress(&oled,0xf0);      //I2C address of display multiplied by 2 (0x78 * 2)
+  oled.setI2CAddress(0x3C*2);
   oled.begin();
   oled.setFont(u8g2_font_6x10_mf); //set font w5 h10
   OLEDprint(0,0,1,1,">>> Module Setup <<<");
@@ -308,11 +328,13 @@ void setup()
   
   //----- Doors ----------------------------------------------------------------
   OLEDprint(3,0,0,1,"Setup Doors...");
-  rotate(door1, 1, door1_reset_up, 1, door1_speed);    //open door too much
+  //rotate(door1, 1, door1_reset_up, 1, door1_speed);    //open door too much
   //rotate(door2, 1, door2_reset_up, 1, door2_speed);
-  delay(500);
-  rotate(door1, 1, door1_reset_down, 0, door1_speed);  //close door to correct height
+  //delay(500);
+  //rotate(door1, 1, door1_reset_down, 0, door1_speed);  //close door to correct height
   //rotate(door2, 1, door2_reset_down, 0, door2_speed);
+  moveDoor(door1,down,bottom,250);
+  delay(3000);
   OLEDprint(4,0,0,1,"-Done");
   delay(1000); //small delay before clearing display in next step
   //----- WiFi -----------------------------------------------------------------
@@ -404,23 +426,23 @@ void setup()
   Serial.println("----- SD-Card Setup -----");
   OLEDprint(0,0,1,1,">>>  uSD  Setup  <<<");
   //see if the card is present and can be initialized:
-  // if (!SD.begin(SDcs))
-  // {
-  //   Serial.println("Card failed, or not present, program stopped!");
-  //   //Stop program if uSD was not detected/faulty (needs to be FAT32 format):
-  //   OLEDprint(1,0,0,1,"uSD Card failed!");
-  //   OLEDprint(2,0,0,1,"program stopped");
-  //   criticalerror();
-  // }
-  // else
-  // {
-  //   Serial.println("SD card initialized successfully!");
-  //   OLEDprint(1,0,0,1,"-setup uSD: Success!");
-  // }
+  if (!SD.begin(SDcs))
+  {
+    Serial.println("Card failed, or not present, program stopped!");
+    //Stop program if uSD was not detected/faulty (needs to be FAT32 format):
+    OLEDprint(1,0,0,1,"uSD Card failed!");
+    OLEDprint(2,0,0,1,"program stopped");
+    criticalerror();
+  }
+  else
+  {
+    Serial.println("SD card initialized successfully!");
+    OLEDprint(1,0,0,1,"-setup uSD: Success!");
+  }
   
   //----- Setup log file, and write initial configuration ----------------------
   //open file, or create if empty
-//  dataFile = SD.open("RFIDLOG.TXT", FILE_WRITE);
+  dataFile = SD.open("RFIDLOG.TXT", FILE_WRITE);
   DateTime now = rtc.now();
   
   //get experiment start time
@@ -428,42 +450,42 @@ void setup()
   
   //TODO: add option to query RFID reader for version and resonant frequency
   //write current version to SD and some other startup/system related information
-//   dataFile.println("");
-//   dataFile.print("# Modular MoPSS Hive version: ");
-//   dataFile.println("not yet implemented");
-//
-//   dataFile.print("# Door Module 1 version: ");
-//   dataFile.println("not yet implemented");
-//   dataFile.print("# Door Module 2 version: ");
-//   dataFile.println("not yet implemented");
-//
-//   dataFile.print("# RFID Module 1 version: ");
-//   dataFile.println("not yet implemented");
-//   dataFile.print("# RFID Module 2 version: ");
-//   dataFile.println("not yet implemented");
-//
-//   dataFile.print("# Habituation phase: ");
-//   dataFile.println(habituation_phase);
-//
-//   dataFile.print("# debug level: ");
-//   dataFile.println(debug);
-//
-//   dataFile.print("# System start @ ");
-//   dataFile.print(nicetime());
-//   dataFile.print(" ");
-// //dataFile.print(rtc.getDay());
-//   dataFile.print(now.day());
-//   dataFile.print("-");
-// //dataFile.print(rtc.getMonth());
-//   dataFile.print(now.month());
-//   dataFile.print("-");
-// //dataFile.println(rtc.getYear());
-//   dataFile.println(now.year());
-//   dataFile.print("# Unixtime: ");
-//   dataFile.println(starttime);
-//   dataFile.println();
-//
-//   dataFile.flush();
+  dataFile.println("");
+  dataFile.print("# Modular MoPSS Hive version: ");
+  dataFile.println("not yet implemented");
+
+  dataFile.print("# Door Module 1 version: ");
+  dataFile.println("not yet implemented");
+  dataFile.print("# Door Module 2 version: ");
+  dataFile.println("not yet implemented");
+
+  dataFile.print("# RFID Module 1 version: ");
+  dataFile.println("not yet implemented");
+  dataFile.print("# RFID Module 2 version: ");
+  dataFile.println("not yet implemented");
+
+  dataFile.print("# Habituation phase: ");
+  dataFile.println(habituation_phase);
+
+  dataFile.print("# debug level: ");
+  dataFile.println(debug);
+
+  dataFile.print("# System start @ ");
+  dataFile.print(nicetime());
+  dataFile.print(" ");
+//dataFile.print(rtc.getDay());
+  dataFile.print(now.day());
+  dataFile.print("-");
+//dataFile.print(rtc.getMonth());
+  dataFile.print(now.month());
+  dataFile.print("-");
+//dataFile.println(rtc.getYear());
+  dataFile.println(now.year());
+  dataFile.print("# Unixtime: ");
+  dataFile.println(starttime);
+  dataFile.println();
+
+  dataFile.flush();
   
   //---- setup experiment variables --------------------------------------------
   
@@ -743,13 +765,61 @@ void loop()
       IR_middle_buffer_sum += IR_middle_buffer[i];
     }
     
+    IR_door1_buffer_sum = 0; //TODO: TESTING ONLY!!
+    IR_door2_buffer_sum = 0;
+    IR_middle_buffer_sum = 0;
+    
     //debug only, print buffer (all)
     if((debug>=2)&&(sb==9)){SENSORDataString=createSENSORDataString("IRB",String(IR_door1_buffer_sum)+":"+String(IR_door2_buffer_sum)+":"+String(IR_middle_buffer_sum),SENSORDataString);}
   }
   
+  //----------------------------------------------------------------------------
+  //read door status on demand -------------------------------------------------
+  //----------------------------------------------------------------------------
+  if((door1_moving || door2_moving) && ((millis() - door1_poll_time) >= 200))
+  {
+    door1_poll_time = millis();
+    door1_moving = getDoorStatus(door1);
+    door2_moving = door1_moving;
+//    Serial.print("door poll: ");
+//    Serial.println(door1_moving);
+    
+    if(!door1_moving)
+    {
+      door1_open = !door1_open;
+      if(door1_open) SENSORDataString = createSENSORDataString("D1", "opened", SENSORDataString); //maximum logging
+      else           SENSORDataString = createSENSORDataString("D1", "closed", SENSORDataString); //maximum logging
+    }
+    if(!door2_moving)
+    {
+      door2_open = !door2_open;
+      if(door2_open) SENSORDataString = createSENSORDataString("D2", "opened", SENSORDataString); //maximum logging
+      else           SENSORDataString = createSENSORDataString("D2", "closed", SENSORDataString); //maximum logging
+    }
+  }
+  
+  // if(door2_moving && ((millis() - door2_poll_time) >= 200))
+  // {
+  //   door2_poll_time = millis();
+  //   door2_moving = getDoorStatus(door2);
+  //
+  //  if(!door2_moving)
+  //  {
+  //    door2_open = !door2_open;
+  //     if(door2_open) SENSORDataString = createSENSORDataString("D2", "opened", SENSORDataString); //maximum logging
+  //    else           SENSORDataString = createSENSORDataString("D2", "closed", SENSORDataString); //maximum logging
+  //  }
+  // }
+  
   //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-  //manage transitions ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  //test field ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
   //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  
+  if((millis() - test_timer) >= 10000)
+  {
+    test_timer = millis();
+    manual_trigger = 1;
+  }
   
   //----------------------------------------------------------------------------
   //door management for phase 2 ------------------------------------------------
@@ -758,7 +828,7 @@ void loop()
   {
   
   //DOOR 1/2 OPENING
-  if(sensor1_triggered || sensor2_triggered || failsafe_triggered)
+  if(sensor1_triggered || sensor2_triggered || failsafe_triggered || manual_trigger)
   {
     if((debug>=1)&&sensor1_triggered){SENSORDataString=createSENSORDataString("IR1","IR1_interrupt",SENSORDataString);}
     if((debug>=1)&&sensor2_triggered){SENSORDataString=createSENSORDataString("IR2","IR2_interrupt",SENSORDataString);}
@@ -766,98 +836,43 @@ void loop()
     sensor1_triggered = 0; //flag needs to be cleared (every time)
     sensor2_triggered = 0; //flag needs to be cleared (every time)
     failsafe_triggered = 0;
+    manual_trigger = 0;
     
     if(!door1_open && !door1_moving && !door2_open && !door2_moving)  //all closed and not moving
     {
-      if(door1_counter >= 50) //since both move, door1_counter is enough
-      {
-        rotate1_duration = rotate(door1, 1, door1_reset_up, 1, door1_speed); //open door too much
-        SENSORDataString = createSENSORDataString("D1", "Opening_reset", SENSORDataString); //generate datastring
-        door1_counter = 0;
-        door1_reset = 1;
-        rotate2_duration = rotate(door2, 1, door2_reset_up, 1, door2_speed); //open door too much
-        SENSORDataString = createSENSORDataString("D2", "Opening_reset", SENSORDataString); //generate datastring
-        door2_counter = 0;
-        door2_reset = 1;
-      }
-      else
-      {
-        rotate1_duration = rotate(door1, 1, door1_needed_rotation, 1, door1_speed); //open door
-        SENSORDataString = createSENSORDataString("D1", "Opening", SENSORDataString); //generate datastring
-        door1_counter++;
-        rotate2_duration = rotate(door2, 1, door2_needed_rotation, 1, door2_speed); //open door
-        SENSORDataString = createSENSORDataString("D2", "Opening", SENSORDataString); //generate datastring
-        door2_counter++;
-      }
+      moveDoor(door1,up,top,250);
+      SENSORDataString = createSENSORDataString("D1", "Opening", SENSORDataString); //generate datastring
+      //moveDoor(door2,up,top,250);
+      SENSORDataString = createSENSORDataString("D2", "Opening", SENSORDataString); //generate datastring
+      
+      door1_poll_time = millis(); //add calculated move duration
+      door2_poll_time = door1_poll_time;
       
       door1_time = millis();
       door1_moving = 1; //set flag, door is opening
-      door2_time = millis(); //opening time
+      door2_time = door1_time; //opening time
       door2_moving = 1; //set flag, door is opening
     }
   }
   
   //DOOR 1/2 CLOSING
   if(door1_open && !door1_moving && door2_open && !door2_moving && //open and not moving
-    ((millis() - door1_time) >= (door1_stays_open_min+rotate1_duration)) && //minimum open time passed
-      (((IR_door1_buffer_sum <= 3) && (IR_door2_buffer_sum <= 3) && (IR_middle_buffer_sum == 0)) || //doors and middle is not blocked
-      ((millis() - door1_time) >= (door1_stays_open_max+rotate1_duration)))) //OR maximum open time passed: takes precedence above all conditions
+    ((millis() - door1_time) >= door1_stays_open_min) && //minimum open time passed
+      ((IR_middle_buffer_sum == 0) || ((millis() - door1_time) >= door1_stays_open_max))) //doors and middle is not blocked OR maximum open time passed: takes precedence above all conditions
   {
     //----- door management
-    if(door1_reset)
-    {
-      rotate1_duration = rotate(door1, 1, door1_reset_down, 0, door1_speed); //close door to correct height after reset_up
-      SENSORDataString = createSENSORDataString("D1", "Closing_reset", SENSORDataString); //maximum logging
-      door1_reset = 0;
-      rotate2_duration = rotate(door2, 1, door2_reset_down, 0, door2_speed); //close door to correct height after reset_up
-      SENSORDataString = createSENSORDataString("D2", "Closing_reset", SENSORDataString); //maximum logging
-      door2_reset = 0;
-    }
-    else
-    {
-      rotate1_duration = rotate(door1, 1, door1_needed_rotation, 0, door1_speed); //close door
-      SENSORDataString = createSENSORDataString("D1", "Closing", SENSORDataString); //maximum logging
-      rotate2_duration = rotate(door2, 1, door2_needed_rotation, 0, door2_speed); //close door
-      SENSORDataString = createSENSORDataString("D2", "Closing", SENSORDataString); //maximum logging
-    }
+    moveDoor(door1,down,bottom,250);
+    SENSORDataString = createSENSORDataString("D1", "Closing", SENSORDataString); //maximum logging
+    //moveDoor(door2,down,bottom,250);
+    SENSORDataString = createSENSORDataString("D2", "Closing", SENSORDataString); //maximum logging
+    
+    door1_poll_time = millis(); //add calculated move duration
+    door2_poll_time = door1_poll_time;
+    
     door1_time = millis();
     door1_moving = 1;
-    door2_time = millis();
+    door2_time = door1_time;
     door2_moving = 1;
-  }
-  
-  //DOOR 1 OPEN/CLOSED create log entry when door has finished moving
-  if(door1_moving && ((millis() - door1_time) >= rotate1_duration))
-  {
-    //----- door management
-    door1_moving = 0; //door has finished moving, calculated from rotate-duration
-    if(!door1_open) //if door has finished moving and was open before, it is now closed
-    {
-      SENSORDataString = createSENSORDataString("D1", "Opened", SENSORDataString); //maximum logging
-      door1_open = 1;
-    }
-    else
-    {
-      SENSORDataString = createSENSORDataString("D1", "Closed", SENSORDataString); //generate datastring
-      door1_open = 0;
-    }
-  }
-  
-  //DOOR 2 OPEN/CLOSED create log entry when door has finished moving
-  if(door2_moving && ((millis() - door2_time) >= rotate2_duration))
-  {
-    //----- door management
-    door2_moving = 0; //door has finished moving, calculated from rotate-duration
-    if(!door2_open) //if door has finished moving and was open before, it is now closed
-    {
-      SENSORDataString = createSENSORDataString("D2", "Opened", SENSORDataString); //maximum logging
-      door2_open = 1;
-    }
-    else
-    {
-      SENSORDataString = createSENSORDataString("D2", "Closed", SENSORDataString); //generate datastring
-      door2_open = 0;
-    }
   }
   
   //FAILSAFE -------------------------------------------------------------------
@@ -1164,7 +1179,7 @@ void loop()
   } //enable transitions for phase 3&4
   
   //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-  //do other stuff (every now and then) ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  //do other stuff (every now and then) ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
   //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
   if((millis() - displaytime) > 1000)
@@ -1179,8 +1194,8 @@ void loop()
     OLEDprint(0,19,0,0,GMT);
     
     //display stuff
-    OLEDprint(1,0,0,0,analogRead(A5));
-    OLEDprint(2,0,0,0,analogRead(A3));
+    //OLEDprint(1,0,0,0,analogRead(A5));
+    //OLEDprint(2,0,0,0,analogRead(A3));
     //OLEDprint(3,0,0,0,SENSORDataString);
     
     oled.sendBuffer();              //update display
@@ -1564,7 +1579,103 @@ String createRFIDDataString(byte currenttag[], byte lasttag[], byte currenttag_p
   return dataString;
 }
 
-//rotate steppers --------------------------------------------------------------
+//Doors ------------------------------------------------------------------------
+uint8_t getDoorStatus(uint8_t address)
+{
+  //request tag-data from reader
+  uint8_t doorStatus[2];
+  Wire.requestFrom(address,2,1); //address, quantity ~574uS 6 bytes, bus release
+  uint8_t n = 0;
+  while(Wire.available())
+  {
+    doorStatus[n] = Wire.read();
+    n++;
+  }
+  
+  //0 IR_top, IR_upper, IR_middle, IR_lower, IR_bottom, IR_barrier_rx, 6 IR_barrier_tx
+  door1_IR_state[6] = doorStatus[0] & 0x01;
+  door1_IR_state[5] = (doorStatus[0] >> 1) & 0x01;
+  door1_IR_state[4] = (doorStatus[0] >> 2) & 0x01;
+  door1_IR_state[3] = (doorStatus[0] >> 3) & 0x01;
+  door1_IR_state[2] = (doorStatus[0] >> 4) & 0x01;
+  door1_IR_state[1] = (doorStatus[0] >> 5) & 0x01;
+  door1_IR_state[0] = (doorStatus[0] >> 6) & 0x01;
+  
+  //doorStatus[0]; //IR sensor states
+  //doorStatus[1]; //busy status
+  
+  return doorStatus[1] & 0x01;
+}
+
+//--------------------------
+void calibrateDoor(uint8_t address)
+{
+  uint8_t sendbuffer[7] = {0,0,0,0,0,0,0};
+  sendbuffer[0] = 1;
+  
+  int send_status = 1;
+  while(send_status != 0)
+  {
+    Wire.beginTransmission(address); //address
+    for(uint8_t i = 0; i < 7; i++)
+    {
+      Wire.write(sendbuffer[i]);
+    }
+    send_status = Wire.endTransmission();
+  }
+}
+
+//--------------------------
+void moveDoor(uint8_t address, uint8_t direction, uint8_t target, uint16_t pulsetime)
+{
+  uint8_t sendbuffer[7] = {0,0,0,0,0,0,0};
+  sendbuffer[0] = 2;
+  
+  sendbuffer[1] = direction;
+  sendbuffer[2] = target;
+  
+  sendbuffer[3] = pulsetime & 0xff;
+  sendbuffer[4] = (pulsetime >> 8) & 0xff;
+  
+  int send_status = 1;
+  while(send_status != 0)
+  {
+    Wire.beginTransmission(address); //address
+    for(uint8_t i = 0; i < 7; i++)
+    {
+      Wire.write(sendbuffer[i]);
+    }
+    send_status = Wire.endTransmission();
+  }
+}
+
+//--------------------------
+void closeDoorFB(uint8_t address, uint8_t start, uint8_t stop)
+{
+  uint8_t sendbuffer[7] = {0,0,0,0,0,0,0};
+  
+  //option sendbuffer[0]
+  //0 = setup, 1 = calibrate, 2 = move simple, 3 = movefancy
+  sendbuffer[0] = 3;
+  
+  //IR 0 = top, 1 = upper, 2 = middle, 3 = lower, 4 = bottom
+  //start sendbuffer[1]
+  sendbuffer[1] = start;
+  //stop sendbuffer[2]
+  sendbuffer[2] = stop;
+  
+  int send_status = 1;
+  while(send_status != 0)
+  {
+    Wire.beginTransmission(address); //address
+    for(uint8_t i = 0; i < 7; i++)
+    {
+      Wire.write(sendbuffer[i]);
+    }
+    send_status = Wire.endTransmission();
+  }
+}
+
 //returns duration until rotation is finished in milliseconds
 uint16_t rotate(uint8_t address, uint8_t stepper, uint32_t steps, uint8_t direction, uint8_t speed)
 {
