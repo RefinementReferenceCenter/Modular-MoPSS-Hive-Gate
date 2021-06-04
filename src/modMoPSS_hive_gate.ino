@@ -51,7 +51,7 @@ ______/                   |-----   X cm   ----|                  \________
 //Current Version of the program
 //##############################################################################
 //##############################################################################
-const char HARDWARE_REV[] = "v6.0";
+const char HARDWARE_REV[] = "v6.1";
 //##############################################################################
 //##############################################################################
 
@@ -84,13 +84,13 @@ Adafruit_DotStar strip(1, 41, 40, DOTSTAR_BRG); //create dotstar object
 
 //SD
 const uint8_t SDcs = A2; //ChipSelect pin for SD (SPI)
-File dataFile;          //create file object
+File dataFile;           //create file object
 
 //WiFi
 char ssid[] = "Buchhaim";           //network name
 char pass[] = "2416AdZk3881QPnh+";  //WPA key
 int status = WL_IDLE_STATUS;        //initialize for first check if wifi up
-#define SPIWIFI SPI                 //the SPI port
+#define SPIWIFI SPI                  //the SPI port
 
 //RTC - Real Time Clock
 const uint8_t GMT = 1;  //current timezone (Winterzeit)
@@ -243,7 +243,7 @@ const uint16_t door1_speed = 250;             //speed is the us delay between st
 const uint16_t door2_speed = 250;
 const uint16_t door1_stays_open_min = 3000;   //minimum open time ms
 const uint16_t door2_stays_open_min = 3000;
-const uint16_t door1_stays_open_max = 10000;  //maximum open time ms
+const uint16_t door1_stays_open_max = 10000;  //maximum open time ms, time door will stay open if mice dwell between doors, not if triggering IR1/2
 const uint16_t door2_stays_open_max = 10000;
 
 //------------------------------------------------------------------------------
@@ -342,19 +342,18 @@ void setup()
   //----- Doors ----------------------------------------------------------------
   OLEDprint(3,0,0,1,"Setup Doors...");
   //complete movement up and down
-  moveDoor(door1,up,top,door1_speed);
-  moveDoor(door2,up,top,door2_speed);
+  //moveDoor(door1,up,top,door1_speed);
+  //moveDoor(door2,up,top,door2_speed);
   while(getDoorStatus(door1) || getDoorStatus(door2)) //while busy wait for move to finish
   {
     delay(250);
   }
-  
-  moveDoor(door1,down,bottom,door1_speed);
-  moveDoor(door2,down,bottom,door2_speed);
-  while(getDoorStatus(door1) || getDoorStatus(door2)) //while busy wait for move to finish
-  {
-    delay(250);
-  }
+  //moveDoor(door1,down,bottom,door1_speed);
+  //moveDoor(door2,down,bottom,door2_speed);
+//  while(getDoorStatus(door1) || getDoorStatus(door2)) //while busy wait for move to finish
+//  {
+//    delay(250);
+//  }
   
   OLEDprint(4,0,0,1,"-Done");
   delay(1000); //small delay before clearing display in next step
@@ -702,15 +701,42 @@ void loop()
   }
   
   //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-  //do stuff (continuously) ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  //do stuff (continuously) ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
   //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
   
   String SENSORDataString = ""; //create/clear data string
   
   //----------------------------------------------------------------------------
-  //check tags at reader 2 -----------------------------------------------------
+  //check tags at RFID readers -------------------------------------------------
   //----------------------------------------------------------------------------
   //check current tag against mouse_library, every read cycle if tag present
+  //Reader 1
+  if(reader1_cycle && tag1_present)
+  {
+    reader1_cycle = 0;
+    
+    //check current tag against library
+    current_mouse1 = 0;
+    for(uint8_t h = 1; h < mice; h++) //iterate through all tags
+    {
+      uint8_t tc = 0;
+      for(uint8_t i = 0; i < sizeof(currenttag1); i++) //compare byte by byte
+      {
+        if(currenttag1[i] == mouse_library[h][i]) tc++;
+        else break; //stop comparing current tag at first mismatch
+      }
+      if(tc == 6) //if all 6 bytes are identical, matching tag found
+      {
+        current_mouse1 = h; //assign detected mouse to variable, mouse 0 is no detection
+        break;  //stop looking after first match
+      }
+    }
+    DateTime now = rtc.now();
+    mouse_last_seen[current_mouse1] = now.unixtime();
+    if(current_mouse1 > 0) mice_visits[current_mouse1][1]++;
+  }
+  
+  //Reader 2
   if(reader2_cycle && tag2_present)
   {
     reader2_cycle = 0;
@@ -722,14 +748,8 @@ void loop()
       uint8_t tc = 0;
       for(uint8_t i = 0; i < sizeof(currenttag2); i++) //compare byte by byte
       {
-        if(currenttag2[i] == mouse_library[h][i])
-        {
-          tc++;
-        }
-        else
-        {
-          break; //stop comparing current tag at first mismatch
-        }
+        if(currenttag2[i] == mouse_library[h][i]) tc++;
+        else break; //stop comparing current tag at first mismatch
       }
       if(tc == 6) //if all 6 bytes are identical, matching tag found
       {
@@ -760,10 +780,7 @@ void loop()
     
     //count up buffer position, start again at 0 if end of array is reached
     sb++;
-    if(sb > 9)
-    {
-      sb = 0;
-    }
+    if(sb > 9) sb = 0;
     
     //calculate sum i.e. times IR sensor was interrupted
     IR_door1_buffer_sum = 0;  //reset
@@ -793,11 +810,26 @@ void loop()
     if(!door1_moving)
     {
       door1_open = !door1_open;
-      if(door1_open) SENSORDataString = createSENSORDataString("D1", "opened", SENSORDataString); //maximum logging
+      if(door1_open)
+      {
+        door1_time = door1_poll_time;
+        SENSORDataString = createSENSORDataString("D1", "opened", SENSORDataString); //maximum logging
+      }
       else
       {
         SENSORDataString = createSENSORDataString("D1", "closed", SENSORDataString); //maximum logging
-        door1_just_closed = 1;
+        //----- transition management
+        if(habituation_phase == 3)
+        {
+          if(transition_to_tc == 1)
+          {
+            if(debug>=3){SENSORDataString=createSENSORDataString("TM","to_tc2",SENSORDataString);}
+            transition_to_tc = 2; //phase 2 origin door closed
+            transition_time = millis();
+          }
+          if(debug>=3){SENSORDataString=createSENSORDataString("TM","to_hc0",SENSORDataString);}
+          transition_to_hc = 0; //phase 5/0 target door closed
+        }
       }
     }
   }
@@ -810,11 +842,26 @@ void loop()
     if(!door2_moving)
     {
       door2_open = !door2_open;
-      if(door2_open) SENSORDataString = createSENSORDataString("D2", "opened", SENSORDataString); //maximum logging
+      if(door2_open)
+      {
+        door2_time = door2_poll_time;
+        SENSORDataString = createSENSORDataString("D2", "opened", SENSORDataString); //maximum logging
+      }
       else
       {
         SENSORDataString = createSENSORDataString("D2", "closed", SENSORDataString); //maximum logging
-        door2_just_closed = 1;
+        if(habituation_phase == 3)
+        {
+          //----- transition management
+          if(debug>=3){SENSORDataString=createSENSORDataString("TM","to_tc0",SENSORDataString);}
+          transition_to_tc = 0; //phase 5/0 target door closed
+          if(transition_to_hc == 1) //phase 2 only if already in phase 1
+          {
+            if(debug>=3){SENSORDataString=createSENSORDataString("TM","to_hc2",SENSORDataString);}
+            transition_to_hc = 2; //phase 2 origin door closed
+            transition_time = millis();
+          }
+        }
       }
     }
   }
@@ -822,7 +869,7 @@ void loop()
   //----------------------------------------------------------------------------
   //door management for phase 2 ------------------------------------------------
   //----------------------------------------------------------------------------
-  if(habituation_phase == 2)
+  if(habituation_phase == 2) //both doors open simultaniously
   {
   
   //DOOR 1/2 OPENING
@@ -831,8 +878,8 @@ void loop()
     if((debug>=1)&&sensor1_triggered){SENSORDataString=createSENSORDataString("IR1","IR1_interrupt",SENSORDataString);}
     if((debug>=1)&&sensor2_triggered){SENSORDataString=createSENSORDataString("IR2","IR2_interrupt",SENSORDataString);}
     
-    sensor1_triggered = 0; //flag needs to be cleared (every time)
-    sensor2_triggered = 0; //flag needs to be cleared (every time)
+    sensor1_triggered = 0; //clearing flags
+    sensor2_triggered = 0;
     failsafe_triggered = 0;
     
     if(!door1_open && !door1_moving && !door2_open && !door2_moving)  //all closed and not moving
@@ -842,13 +889,10 @@ void loop()
       moveDoor(door2,up,top,door2_speed);
       SENSORDataString = createSENSORDataString("D2", "Opening", SENSORDataString); //generate datastring
       
-      door1_poll_time = millis(); //add calculated move duration
+      door1_moving = 1;             //set flag, door is moving
+      door2_moving = 1;             //set flag, door is moving
+      door1_poll_time = millis();
       door2_poll_time = door1_poll_time;
-      
-      door1_time = millis();    //opening time
-      door1_moving = 1;         //set flag, door is opening
-      door2_time = door1_time;  //opening time
-      door2_moving = 1;         //set flag, door is opening
     }
   }
   
@@ -863,13 +907,10 @@ void loop()
     moveDoor(door2,down,bottom,door2_speed);
     SENSORDataString = createSENSORDataString("D2", "Closing", SENSORDataString); //maximum logging
     
-    door1_poll_time = millis();         //add calculated move duration
+    door1_moving = 1;             //set flag, door is moving
+    door2_moving = 1;             //set flag, door is moving
+    door1_poll_time = millis();
     door2_poll_time = door1_poll_time;
-    
-    door1_time = millis();    //opening time
-    door1_moving = 1;         //set flag, door is opening
-    door2_time = door1_time;  //opening time
-    door2_moving = 1;         //set flag, door is opening
   }
   
   //FAILSAFE -------------------------------------------------------------------
@@ -879,10 +920,10 @@ void loop()
     SENSORDataString = createSENSORDataString("FS", "failsafe1", SENSORDataString); //generate datastring
     failsafe_triggered = 1;
   }
-  } //phase 2
+  } //end habituation phase 2
   
   //----------------------------------------------------------------------------
-  //door management for phase 3 & 4 --------------------------------------------
+  //door management for phase 3 ------------------------------------------------
   //----------------------------------------------------------------------------
   if(habituation_phase == 3)
   {
@@ -893,7 +934,7 @@ void loop()
   {
     if((debug>=1)&&sensor1_triggered){SENSORDataString=createSENSORDataString("IR1","IR1_interrupt",SENSORDataString);}
     
-    sensor1_triggered = 0; //flag needs to be cleared (every time)
+    sensor1_triggered = 0; //clear flag
     
     if(!door1_open && !door1_moving && !door2_open && !door2_moving && (transition_to_tc == 0) && //all closed and not moving and not in transition towards testcage
       (((transition_to_hc == 0) && !IR_middleL_buffer_sum && !IR_middleR_buffer_sum && !tc_occupied) || (transition_to_hc == 3))) //not transitioning to hc and middle must be empty OR already transitioning to hc
@@ -902,8 +943,8 @@ void loop()
       moveDoor(door1,up,top,door1_speed);
       SENSORDataString = createSENSORDataString("D1", "Opening", SENSORDataString); //generate datastring
       
-      door1_time = millis();
-      door1_moving = 1; //set flag, door is opening
+      door1_poll_time = millis();
+      door1_moving = 1; //set flag, door is moving
       
       //----- transition management
       if(transition_to_hc == 0) //only start transition to tc if not on its way back (transition to hc)
@@ -927,27 +968,11 @@ void loop()
     //----- door management
     moveDoor(door1,down,bottom,door1_speed);
     SENSORDataString = createSENSORDataString("D1", "Closing", SENSORDataString); //maximum logging
-
-    door1_time = millis();
+    
+    door1_poll_time = millis();
     door1_moving = 1;
   }
     
-  //DOOR 1 CLOSED create log entry when door has finished moving
-  if(door1_just_closed)
-  {
-    //----- door management
-    door1_just_closed = 0;
-    //----- transition management
-    if(transition_to_tc == 1)
-    {
-      if(debug>=3){SENSORDataString=createSENSORDataString("TM","to_tc2",SENSORDataString);}
-      transition_to_tc = 2; //phase 2 origin door closed
-      transition_time = millis();
-    }
-    if(debug>=3){SENSORDataString=createSENSORDataString("TM","to_hc0",SENSORDataString);}
-    transition_to_hc = 0; //phase 5/0 target door closed
-  }
-  
   //----- TRANSITION MANAGEMENT ------------------------------------------------
   //check mice in transition (both doors closed)
   //transitioning to TestCage
@@ -983,7 +1008,6 @@ void loop()
           }
         }
       }
-      
     }
   }
   //transitioning to HomeCage (here we don't check for multiple mice, as the way back is always free)
@@ -1017,7 +1041,7 @@ void loop()
   if(sensor2_triggered || (transition_to_tc == 3))
   {
     if((debug>=1)&&sensor2_triggered){SENSORDataString=createSENSORDataString("IR2","IR2_interrupt",SENSORDataString);}
-    sensor2_triggered = 0; //flag needs to be cleared (every time)
+    sensor2_triggered = 0; //clear flag
     
     if(!door2_open && !door2_moving && !door1_moving && !door1_open && (transition_to_hc == 0) && //all closed and not moving and not transitioning to homecage
       (((transition_to_tc == 0) && !IR_middleL_buffer_sum && !IR_middleR_buffer_sum) || (transition_to_tc == 3))) //not transitioning to tc and middle must be empty OR already transitioning to tc
@@ -1036,9 +1060,9 @@ void loop()
       //----- door management
       moveDoor(door2,up,top,door2_speed);
       SENSORDataString = createSENSORDataString("D2", "Opening", SENSORDataString); //generate datastring
-
-      door2_time = millis(); //opening time
-      door2_moving = 1; //set flag, door is opening
+      
+      door2_poll_time = millis();
+      door2_moving = 1; //set flag, door is moving
     }
   }
   
@@ -1059,25 +1083,9 @@ void loop()
       //save time to evaluate failsafe
       d2_timeout_time = millis();
     }
-
-    door2_time = millis();
+    
+    door2_poll_time = millis();
     door2_moving = 1;
-  }
-  
-  //DOOR 2 CLOSED
-  if(door2_just_closed)
-  {
-    //----- door management
-    door2_just_closed = 0;
-    //----- transition management
-    if(debug>=3){SENSORDataString=createSENSORDataString("TM","to_tc0",SENSORDataString);}
-    transition_to_tc = 0; //phase 5/0 target door closed
-    if(transition_to_hc == 1) //phase 2 only if already in phase 1
-    {
-      if(debug>=3){SENSORDataString=createSENSORDataString("TM","to_hc2",SENSORDataString);}
-      transition_to_hc = 2; //phase 2 origin door closed
-      transition_time = millis();
-    }
   }
   
   //----------------------------------------------------------------------------
@@ -1118,7 +1126,7 @@ void loop()
       SENSORDataString = createSENSORDataString("FS", "failsafe2", SENSORDataString); //generate datastring
     }
   }
-  } //enable transitions for phase 3&4
+  } //end habituation phase 3
   
   //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
   //do other stuff (every now and then) ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
