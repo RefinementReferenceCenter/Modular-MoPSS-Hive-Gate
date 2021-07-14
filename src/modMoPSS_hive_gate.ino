@@ -2,18 +2,18 @@
 /*
 --- Adafruit ItsyBitsy M0 pin mapping - Hardware Revision v6.1 ---
 
- A0- (J5 upper 2-pin)
+ A0- (J10 upper 2-pin)
  A1- Button 1,2,3
  A2- uSD ChipSelect
  A3- (J3 lower 3-pin)
  A4- (J2 lower 3-pin)
  A5- (J1 lower 3-pin)
 
- D0- (J4 upper debounce 2-pin)
- D1- RTC INTerrupt/SQuareWave
- D2- (J1 upper 3-pin)
- D3- (J2 upper 3-pin)
- D4- (J3 upper debounce 2-pin)
+ D0- (J8 upper debounce 2-pin)
+ D1- (J7 upper 3-pin)
+ D2- RTC INTerrupt/SQuareWave
+ D3- (J9 upper debounce 2-pin)
+ D4- (J6 upper 3-pin)
  D5- DEBUG for timing (5V out!)
  D7- (J4 lower 3-pin)
  D9- (J5 lower 3-pin)
@@ -55,6 +55,9 @@ const char HARDWARE_REV[] = "v6.1";
 //##############################################################################
 //##############################################################################
 
+//Buttons
+const uint8_t buttons = A1; //Bottom: ~6, Middle: ~347, Top: ~688, None: 1023
+
 //Sensors
 const int sensor1 = A5; //IR 1 door 1
 const int sensor2 = A4; //IR 2 door 2
@@ -93,12 +96,13 @@ int status = WL_IDLE_STATUS;        //initialize for first check if wifi up
 #define SPIWIFI SPI                  //the SPI port
 
 //RTC - Real Time Clock
-const uint8_t GMT = 1;  //current timezone (Winterzeit)
+const uint8_t GMT = 2;  //current timezone (Sommerzeit)
 RTC_DS3231 rtc;         //create rtc object
 
 //Display
 U8G2_SSD1306_128X64_NONAME_F_HW_I2C oled(U8G2_R0,U8X8_PIN_NONE,23,22); //def,reset,SCL,SDA
 uint32_t displaytime = 0;         //stores millis to time display refresh
+uint8_t displayon = 1;            //flag to en/disable display
 
 //Door Modules
 const uint8_t door1 = 0x10;       //I2C address door module 1
@@ -136,8 +140,8 @@ uint8_t door1_IR_state[7]; //0 IR_top, IR_upper, IR_middle, IR_lower, IR_bottom,
 uint8_t door2_IR_state[7];
 
 //RFID
-const uint8_t reader1 = 0x09;     //I2C address RFID module 1
-const uint8_t reader2 = 0x08;     //I2C address RFID module 2
+const uint8_t reader1 = 0x08;     //I2C address RFID module 1
+const uint8_t reader2 = 0x09;     //I2C address RFID module 2
 
 unsigned long RFIDtime;           //used to measure time before switching to next antenna
 uint8_t RFIDtoggle = 0;           //flag used to switch to next antenna
@@ -174,22 +178,22 @@ unsigned long d2_timeout_time;  //stores time when timeout happened
 const uint8_t mice = 15;           //number of mice in experiment (add 1 for mouse 0, add 2 for test-mice)
 const uint8_t mouse_library[mice][6] = {
   {0x00,0x00,0x00,0x00,0x00,0x00}, //mouse 0
-  {0x73,0x74,0xF7,0x90,0x2E,0xE1}, //mouse 1  sw_si 1923
-  {0x7F,0x65,0x7F,0x90,0x2E,0xE1}, //mouse 2  ro_ge 8095
-  {0x40,0x73,0x7F,0x90,0x2E,0xE1}, //mouse 3  sw_ro 1616
-  {0x32,0x74,0x7F,0x90,0x2E,0xE1}, //mouse 4  we_sw 1858
-  {0xB8,0x74,0x7F,0x90,0x2E,0xE1}, //mouse 5  ro_we 1992
-  {0x18,0x6E,0x7F,0x90,0x2E,0xE1}, //mouse 6  sw_ge 0296
-  {0xAA,0x71,0x7F,0x90,0x2E,0xE1}, //mouse 7  we_si 1210
-  {0x6B,0x6E,0x7F,0x90,0x2E,0xE1}, //mouse 8  ro_si 0379
-  {0x0F,0x71,0x7F,0x90,0x2E,0xE1}, //mouse 9  sw_we 1055
-  {0x77,0x6F,0x7F,0x90,0x2E,0xE1}, //mouse 10 we_ge 0647
-  {0x91,0x64,0x7F,0x90,0x2E,0xE1}, //mouse 11 ro_sw 7857
-  {0x41,0x73,0x7F,0x90,0x2E,0xE1}, //mouse 12 we_ro 1617
+  {0x8A,0x68,0xF7,0x90,0x2E,0xE1}, //mouse 1  we_ge 900 200000628874 e12e90f7 68 8a #funktioniert
+  {0xFE,0x68,0xF7,0x90,0x2E,0xE1}, //mouse 2  we_ro 900 200000628990 e12e90f7 68 fe
+  {0xE5,0x66,0xF7,0x90,0x2E,0xE1}, //mouse 3  we_sw 900 200000628453 e12e90f7 66 e5
+  {0xB8,0x63,0xF7,0x90,0x2E,0xE1}, //mouse 4  we_si 900 200000627640 e12e90f7 63 b8
+  {0x92,0x61,0xF7,0x90,0x2E,0xE1}, //mouse 5  sw_ge 900 200000627090 e12e90f7 61 92
+  {0x41,0x74,0xF7,0x90,0x2E,0xE1}, //mouse 6  sw_ro 900 200000631873 e12e90f7 74 41
+  {0x75,0x69,0xF7,0x90,0x2E,0xE1}, //mouse 7  sw_we 900 200000629109 e12e90f7 69 75
+  {0xCA,0x63,0xF7,0x90,0x2E,0xE1}, //mouse 8  sw_si 900 200000627658 e12e90f7 63 ca
+  {0x26,0x6E,0xF7,0x90,0x2E,0xE1}, //mouse 9  ro_ge 900 200000630310 e12e90f7 6e 26
+  {0xF4,0x72,0xF7,0x90,0x2E,0xE1}, //mouse 10 ro_we 900 200000631540 e12e90f7 72 f4
+  {0x6B,0x74,0xF7,0x90,0x2E,0xE1}, //mouse 11 ro_sw 900 200000631915 e12e90f7 74 6b
+  {0x0C,0x67,0xF7,0x90,0x2E,0xE1}, //mouse 12 ro_si 900 200000628492 e12e90f7 67 0c
   {0xA1,0x82,0x42,0xDD,0x3E,0xF3}, //mouse 13 polymorphmaus
-  {0x0E,0x67,0xF7,0x90,0x2E,0xE1}  //mouse 14 bleistiftmaus
+  {0x66,0x6D,0xF7,0x90,0x2E,0xE1}  //mouse 14 bleistiftmaus2 900_200000630118 e12e90f76d66
 };
-uint8_t mice_visits[mice][2];      //contains the number of tag reads at reader 1 and 2 during the last 24 hours
+uint8_t mice_visits[mice][2];      //contains the number of tag reads at reader 1 and 2 since last reset
 
 uint8_t update_current_mouse1 = 1; //flag for updating current mouse at reader 1
 uint8_t update_current_mouse2 = 1; //flag for updating current mouse at reader 2
@@ -208,7 +212,7 @@ uint32_t test_timer = 0;
 //##############################################################################
 
 //if set to 1, the MoPSS will wait for a wifi connection and synchronization with network time before continuing
-const uint8_t enable_wifi = 0;
+const uint8_t enable_wifi = 1;
 
 //if set to 1, the MoPSS will wait until a serial connection via USB is established
 //before continuing. Also prints what is written to uSD to Serial as well.
@@ -226,16 +230,16 @@ const uint8_t debug = 3;
 //1: Both doors always open
 //2: Synchronous movement of both doors, Triggered by IR1/IR2/Failsafe(middle)
 //3: Transition management enabled, mulitmice, mouse_limit and transition delay options available
-uint8_t habituation_phase = 3;
+uint8_t habituation_phase = 1;
 
 //enable or disable multimice detection
-uint8_t multimice = 1;
+uint8_t multimice = 0;
 
 //limit the number of mice allowed in the test cage (1 or no limit)
-uint8_t mouse_limit = 1;
+uint8_t mouse_limit = 0;
 
 //time mouse is kept in transition with both doors closed in phase 4 (ms)
-uint16_t transition_delay = 3000;
+uint16_t transition_delay = 0;
 
 
 //door and transition management
@@ -295,7 +299,9 @@ const uint32_t warn_time = 60*60*24*1000;
 void setup()
 {
   //----- DEBUGGING ------------------------------------------------------------
-  pinMode(5,OUTPUT); //to allow port toggle for timing purposes D5 PA15
+  // pinMode(5,OUTPUT); //to allow port toggle for timing purposes D5 PA15
+  // pinMode(A0,OUTPUT);
+  // pinMode(4,OUTPUT);
   
   //Set up RGB LED on board, and turn it off ------------------------------------
   strip.begin(); //Initialize pins for output
@@ -325,7 +331,10 @@ void setup()
   disableReader(reader1);
   disableReader(reader2);
   OLEDprint(2,0,0,1,"-Done");
-
+  
+  //----- Buttons --------------------------------------------------------------
+  pinMode(buttons,INPUT);
+  
   //----- Sensors --------------------------------------------------------------
   //setup input mode for pins (redundant, for clarity)
   pinMode(sensor1,INPUT); //IR 1 door 1
@@ -540,8 +549,12 @@ void loop()
   //>=80ms are required to cold-start a tag for a successful read (at reduced range)
   //>=90ms for full range, increasing further only seems to increase range due to noise
   //rather than requirements of the tag and coil for energizing (100ms is chosen as a compromise)
-  //REG_PORT_OUTSET0 = PORT_PA15;
-  //REG_PORT_OUTCLR0 = PORT_PA15;
+  // REG_PORT_OUTSET0 = PORT_PA08; //J6/D3
+  // REG_PORT_OUTCLR0 = PORT_PA08; //J6/D3
+  // REG_PORT_OUTSET0 = PORT_PA02; //J10/A0
+  // REG_PORT_OUTCLR0 = PORT_PA02; //J10/A0
+  //REG_PORT_OUTSET0 = PORT_PA15; //D5
+  //REG_PORT_OUTCLR0 = PORT_PA15; //D5
   
   // make a string for assembling the data to log:
   String RFIDdataString = "";
@@ -759,7 +772,7 @@ void loop()
     }
     DateTime now = rtc.now();
     mouse_last_seen[current_mouse2] = now.unixtime();
-    if(current_mouse2 > 0) mice_visits[current_mouse2][1]++;
+    if(current_mouse2 > 0) mice_visits[current_mouse2][2]++;
   }
   
   //----------------------------------------------------------------------------
@@ -1129,79 +1142,92 @@ void loop()
   } //end habituation phase 3
   
   //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-  //do other stuff (every now and then) ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  //do other stuff (every now and then) ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
   //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-  if((millis() - displaytime) > 1000)
+  
+  if((millis() - displaytime) > 1000) //~59ms display on, off 0.8us
   {
     displaytime = millis();
-    oled.clearBuffer();             //clear display
     
-    //create nice date string
-    DateTime now = rtc.now();
-    uint8_t D = now.day();
-    uint8_t M = now.month();
-    String nDate = "";
+    //switch display on/off if button pressed
+    if(analogRead(buttons) < 900)
+    {
+      displayon = !displayon;
+      if(!displayon)
+      {
+        oled.clearBuffer();   //clear display
+        oled.sendBuffer();    //~33ms
+      }
+    }
+    
+    if(displayon)
+    {
+      oled.clearBuffer();             //clear display
+      //create nice date string
+      DateTime now = rtc.now();
+      uint8_t D = now.day();
+      uint8_t M = now.month();
+      String nDate = "";
 
-    if(D < 10) nDate += "0";
-    nDate += D;
-    nDate += "-";
-    if(M < 10) nDate += "0";
-    nDate += M;
-    nDate += "-";
-    nDate += now.year();
-    
-    //display current time from RTC and date
-    OLEDprint(0,0,0,0,nicetime());
-    OLEDprint(0,11,0,0,nDate);
-    
-    //display info on door status and TC status
-    OLEDprint(1,0,0,0,"D1:");
-    if(door1_open && !door1_moving) OLEDprint(1,3,0,0,"Open");
-    if(door1_open && door1_moving) OLEDprint(1,3,0,0,"Closing");
-    if(!door1_open && !door1_moving) OLEDprint(1,3,0,0,"Closed");
-    if(!door1_open && door1_moving) OLEDprint(1,3,0,0,"Opening");
-    
-    OLEDprint(1,10,0,0,"D2:");
-    if(door2_open && !door2_moving) OLEDprint(1,13,0,0,"Open");
-    if(door2_open && door2_moving) OLEDprint(1,13,0,0,"Closing");
-    if(!door2_open && !door2_moving) OLEDprint(1,13,0,0,"Closed");
-    if(!door2_open && door2_moving) OLEDprint(1,13,0,0,"Opening");
-    
-    OLEDprint(2,0,0,0,"TC occupied:");
-    if(mouse_limit)
-    {
-      if(tc_occupied) OLEDprint(2,13,0,0,"Yes");
-      else OLEDprint(2,13,0,0,"No");
-    }
-    else OLEDprint(2,13,0,0,"N/A");
-    
-    //Print a letter for each mouse and activity histogram for last 24h
-    String letters = "ABCDEFGHIJKL";
-    for(uint8_t i = 0;i < 12;i++)
-    {
-      oled.setCursor(i*10,63);
-      oled.print(letters[i]);
-    }
-    
-    //clip values
-    for(uint8_t i = 0;i < 12;i++)
-    {
-      if(mice_visits[i+1][1] > 10) mice_visits[i+1][1] = 10;
-      if(mice_visits[i+1][2] > 10) mice_visits[i+1][2] = 10;
-    }
-    
-    for(uint8_t i = 0;i < 12;i++)
-    {
-      oled.drawLine(i*10,52,i*10,52-mice_visits[i+1][1]);     //x y x y Reader 1
-      oled.drawLine(i*10+1,52,i*10+1,52-mice_visits[i+1][1]); //x y x y
+      if(D < 10) nDate += "0";
+      nDate += D;
+      nDate += "-";
+      if(M < 10) nDate += "0";
+      nDate += M;
+      nDate += "-";
+      nDate += now.year();
       
-      oled.drawLine(i*10+3,52,i*10+3,52-mice_visits[i+1][2]); //x y x y Reader 2
-      oled.drawLine(i*10+4,52,i*10+4,52-mice_visits[i+1][2]); //x y x y
+      //display current time from RTC and date
+      OLEDprint(0,0,0,0,nicetime());
+      OLEDprint(0,11,0,0,nDate);
+      
+      //display info on door status and TC status
+      OLEDprint(1,0,0,0,"D1:");
+      if(door1_open && !door1_moving) OLEDprint(1,3,0,0,"Open");
+      if(door1_open && door1_moving) OLEDprint(1,3,0,0,"Closing");
+      if(!door1_open && !door1_moving) OLEDprint(1,3,0,0,"Closed");
+      if(!door1_open && door1_moving) OLEDprint(1,3,0,0,"Opening");
+      
+      OLEDprint(1,10,0,0,"D2:");
+      if(door2_open && !door2_moving) OLEDprint(1,13,0,0,"Open");
+      if(door2_open && door2_moving) OLEDprint(1,13,0,0,"Closing");
+      if(!door2_open && !door2_moving) OLEDprint(1,13,0,0,"Closed");
+      if(!door2_open && door2_moving) OLEDprint(1,13,0,0,"Opening");
+      
+      OLEDprint(2,0,0,0,"TC occupied:");
+      if(mouse_limit)
+      {
+        if(tc_occupied) OLEDprint(2,13,0,0,"Yes");
+        else OLEDprint(2,13,0,0,"No");
+      }
+      else OLEDprint(2,13,0,0,"N/A");
+      
+      //Print a letter for each mouse and activity histogram for last 24h
+      String letters = "ABCDEFGHIJKL";
+      for(uint8_t i = 0;i < 12;i++)
+      {
+        oled.setCursor(i*10,63);
+        oled.print(letters[i]);
+      }
+      
+      //clip values
+      for(uint8_t i = 0;i < 12;i++)
+      {
+        if(mice_visits[i+1][1] > 100) mice_visits[i+1][1] = 100;
+        if(mice_visits[i+1][2] > 100) mice_visits[i+1][2] = 100;
+      }
+      
+      for(uint8_t i = 0;i < 12;i++)
+      {
+        oled.drawLine(i*10,52,i*10,52-(mice_visits[i+1][1]/10));     //x y x y Reader 1
+        oled.drawLine(i*10+1,52,i*10+1,52-(mice_visits[i+1][1]/10)); //x y x y 2 pixel wide
+        
+        oled.drawLine(i*10+3,52,i*10+3,52-(mice_visits[i+1][2]/10)); //x y x y Reader 2
+        oled.drawLine(i*10+4,52,i*10+4,52-(mice_visits[i+1][2]/10)); //x y x y 2 pixel wide
+      }
+      //update display
+      oled.sendBuffer();
     }
-    
-    //update display
-    oled.sendBuffer();
   }
   
   //do stuff every 10 minutes (that needs rtc) ----------------------------------
@@ -1210,19 +1236,19 @@ void loop()
     rtccheck_time = millis();
     DateTime now = rtc.now();
     uint32_t rtc_now = now.unixtime();
-    
+  
     //check if a mouse didn't visit the testcage -------------------------------
     for(uint8_t i = 1; i < mice; i++)
     {
       uint32_t time_since_R2 = rtc_now - mouse_last_seen[i];    //seen at R2
-      
+  
       //remove warning flag when participating again
       if((time_since_R2 < warn_time) && (mouse_participation[i] == 2))
       {
         mouse_participation[i] = 1; //reset mouse warning flag
         SENSORDataString = createSENSORDataString("Mr", String(i), SENSORDataString); //Mr = mouse re-participation
       }
-      
+  
       //add warning to log on low participation
       if((time_since_R2 >= warn_time) && (mouse_participation[i] == 1))
       {
