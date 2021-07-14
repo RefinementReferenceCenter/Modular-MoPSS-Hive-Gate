@@ -35,7 +35,7 @@ m g    |     |I|    | | | O |   | |   | |   | O | | |    |I|     |    s  g
 e e  ––|–––––|D|––––| |–| R |–––| |–-–| |––-| R |–| |––––|D|–––––|––  t  e
        |     |1|    |1| | 1 |   |3|   |4|   | 2 | |2|    |2|     |
        |                                                         |
-______/                   |-----   X cm   ----|                  \________
+______/                   |-----  13 cm  ----|                   \________
 
 */
 
@@ -230,7 +230,7 @@ const uint8_t debug = 3;
 //1: Both doors always open
 //2: Synchronous movement of both doors, Triggered by IR1/IR2/Failsafe(middle)
 //3: Transition management enabled, mulitmice, mouse_limit and transition delay options available
-uint8_t habituation_phase = 1;
+uint8_t habituation_phase = 2;
 
 //enable or disable multimice detection
 uint8_t multimice = 0;
