@@ -35,7 +35,7 @@ m g    |     |I|    | | | O |   | |   | |   | O | | |    |I|     |    s  g
 e e  ––|–––––|D|––––| |–| R |–––| |–-–| |––-| R |–| |––––|D|–––––|––  t  e
        |     |1|    |1| | 1 |   |3|   |4|   | 2 | |2|    |2|     |
        |                                                         |
-______/                   |-----  13 cm  ----|                   \________
+______/                   |-----   X cm   ----|                  \________
 
 */
 
@@ -230,7 +230,7 @@ const uint8_t debug = 3;
 //1: Both doors always open
 //2: Synchronous movement of both doors, Triggered by IR1/IR2/Failsafe(middle)
 //3: Transition management enabled, mulitmice, mouse_limit and transition delay options available
-uint8_t habituation_phase = 2;
+uint8_t habituation_phase = 1;
 
 //enable or disable multimice detection
 uint8_t multimice = 0;
@@ -1213,17 +1213,17 @@ void loop()
       //clip values
       for(uint8_t i = 0;i < 12;i++)
       {
-        if(mice_visits[i+1][1] > 100) mice_visits[i+1][1] = 100;
-        if(mice_visits[i+1][2] > 100) mice_visits[i+1][2] = 100;
+        if(mice_visits[i+1][1] > 500) mice_visits[i+1][1] = 500;
+        if(mice_visits[i+1][2] > 500) mice_visits[i+1][2] = 500;
       }
       
       for(uint8_t i = 0;i < 12;i++)
       {
-        oled.drawLine(i*10,52,i*10,52-(mice_visits[i+1][1]/10));     //x y x y Reader 1
-        oled.drawLine(i*10+1,52,i*10+1,52-(mice_visits[i+1][1]/10)); //x y x y 2 pixel wide
+        oled.drawLine(i*10,52,i*10,52-(mice_visits[i+1][1]/50));     //x y x y Reader 1
+        oled.drawLine(i*10+1,52,i*10+1,52-(mice_visits[i+1][1]/50)); //x y x y 2 pixel wide
         
-        oled.drawLine(i*10+3,52,i*10+3,52-(mice_visits[i+1][2]/10)); //x y x y Reader 2
-        oled.drawLine(i*10+4,52,i*10+4,52-(mice_visits[i+1][2]/10)); //x y x y 2 pixel wide
+        oled.drawLine(i*10+3,52,i*10+3,52-(mice_visits[i+1][2]/50)); //x y x y Reader 2
+        oled.drawLine(i*10+4,52,i*10+4,52-(mice_visits[i+1][2]/50)); //x y x y 2 pixel wide
       }
       //update display
       oled.sendBuffer();
