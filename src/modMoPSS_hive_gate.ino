@@ -245,10 +245,10 @@ uint16_t transition_delay = 0;
 //door and transition management
 const uint16_t door1_speed = 250;             //speed is the us delay between steps. 0 is fastest possible, and slower the higher the value
 const uint16_t door2_speed = 250;
-const uint16_t door1_stays_open_min = 3000;   //minimum open time ms
-const uint16_t door2_stays_open_min = 3000;
-const uint16_t door1_stays_open_max = 10000;  //maximum open time ms, time door will stay open if mice dwell between doors, not if triggering IR1/2
-const uint16_t door2_stays_open_max = 10000;
+const uint16_t door1_stays_open_min = 5000;   //minimum open time ms
+const uint16_t door2_stays_open_min = 5000;   //old 3s
+const uint16_t door1_stays_open_max = 60000;  //maximum open time ms, time door will stay open if mice dwell between doors, not if triggering IR1/2
+const uint16_t door2_stays_open_max = 60000;  //old 10s
 
 //------------------------------------------------------------------------------
 //For easier data evaluation or feedback, mouse participation and warnings can be set here
@@ -912,7 +912,7 @@ void loop()
   //DOOR 1/2 CLOSING
   if(door1_open && !door1_moving && door2_open && !door2_moving && //open and not moving
     ((millis() - door1_time) >= door1_stays_open_min) && //minimum open time passed
-      ((!IR_middleL_buffer_sum && !IR_middleR_buffer_sum) || ((millis() - door1_time) >= door1_stays_open_max))) //doors and middle is not blocked OR maximum open time passed: takes precedence above all conditions
+    !IR_middleL_buffer_sum && !IR_middleR_buffer_sum && !IR_door1_buffer_sum && !IR_door2_buffer_sum) //doors and middle is not blocked
   {
     //----- door management
     moveDoor(door1,down,bottom,door1_speed);
