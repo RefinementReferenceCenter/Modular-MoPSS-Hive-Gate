@@ -232,14 +232,14 @@ const uint8_t debug = 3;
 //3: Transition management enabled, mulitmice, mouse_limit and transition delay options available
 uint8_t habituation_phase = 1;
 
-//enable or disable multimice detection
-uint8_t multimice = 0;
+//enable or disable multimice detection (if 1, only one mouse is allowed inside gate)
+uint8_t multimice = 0; //0 or 1
 
-//limit the number of mice allowed in the test cage (1 or no limit)
-uint8_t mouse_limit = 0;
+//limit the number of mice allowed in the test cage (if 1, only one mouse may be in testcage -> mouse has to return)
+uint8_t mouse_limit = 0; //0 or 1
 
-//time mouse is kept in transition with both doors closed in phase 4 (ms)
-uint16_t transition_delay = 0;
+//time mouse is kept in transition (inside gate) with both doors closed (ms)
+uint16_t transition_delay = 0; //ms
 
 
 //door and transition management
