@@ -809,6 +809,10 @@ void loop()
     }
     
     //debug only, print buffer (all)
+    if((debug>=3)&&(sb==9)&&((IR_middleL_buffer_sum==10)||(IR_middleR_buffer_sum==10)))
+    {
+      createSENSORDataString("IRB",String(IR_middleL_buffer_sum)+":"+String(IR_middleR_buffer_sum),SENSORDataString);
+    }
     if((debug>=4)&&(sb==9)){SENSORDataString=createSENSORDataString("IRB",String(IR_door1_buffer_sum)+":"+String(IR_door2_buffer_sum)+":"+String(IR_middleL_buffer_sum)+":"+String(IR_middleR_buffer_sum),SENSORDataString);}
   }
   
@@ -1139,6 +1143,16 @@ void loop()
       SENSORDataString = createSENSORDataString("FS", "failsafe2", SENSORDataString); //generate datastring
     }
   }
+  
+  //FAILSAFE 3 -----------------------------------------------------------------
+  //case: door-module is unresponsive or fails
+//  if(middle_IR blocked for too long)
+//  {
+//    enter failsafe mode, open everything, stop program;
+//  }
+  
+  
+  
   } //end habituation phase 3
   
   //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
