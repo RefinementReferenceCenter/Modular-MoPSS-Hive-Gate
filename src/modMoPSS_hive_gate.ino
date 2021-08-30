@@ -245,8 +245,8 @@ uint16_t transition_delay = 0; //ms
 //door and transition management
 const uint16_t door1_speed = 250;             //speed is the us delay between steps. 0 is fastest possible, and slower the higher the value
 const uint16_t door2_speed = 250;
-const uint16_t door1_stays_open_min = 5000;   //minimum open time ms
-const uint16_t door2_stays_open_min = 5000;   //old 3s
+const uint16_t door1_stays_open_min = 1000;   //minimum open time ms, adjust if mice are confident in going through doors -> no/little reaction to door movement
+const uint16_t door2_stays_open_min = 1000;   //old 3s
 const uint16_t door1_stays_open_max = 60000;  //maximum open time ms, time door will stay open if mice dwell between doors, only phase 3
 const uint16_t door2_stays_open_max = 60000;  //old 10s
 
