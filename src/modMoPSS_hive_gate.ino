@@ -230,7 +230,7 @@ const uint8_t debug = 3;
 //1: Both doors always open
 //2: Synchronous movement of both doors, Triggered by IR1/IR2/Failsafe(middle)
 //3: Transition management enabled, mulitmice, mouse_limit and transition delay options available
-uint8_t habituation_phase = 2;
+uint8_t habituation_phase = 3;
 
 //enable or disable multimice detection (if 1, only one mouse is allowed inside gate)
 uint8_t multimice = 0; //0 or 1
