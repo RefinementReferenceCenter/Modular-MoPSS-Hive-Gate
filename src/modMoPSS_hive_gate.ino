@@ -858,7 +858,7 @@ void loop()
     
     //monitor how long door is "moving"
     door2_move_counter++; //900 = 3min.
-    if(door2_move_counter >= 900)
+    if(door2_move_counter >= 4500)
     {
       habituation_phase = 0; //STOP experiment!
       SENSORDataString = createSENSORDataString("PNC","PANIC! D2",SENSORDataString);
@@ -1173,16 +1173,7 @@ void loop()
       SENSORDataString = createSENSORDataString("FS", "failsafe2", SENSORDataString); //generate datastring
     }
   }
-  
-  //FAILSAFE 3 PANIC -----------------------------------------------------------
-  //case: door-module is unresponsive or fails
-//  if(middle_IR blocked for too long)
-//  {
-//    enter failsafe mode, open everything, stop program;
-//  }
-  
-  
-  
+
   } //end habituation phase 3
   
   //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
