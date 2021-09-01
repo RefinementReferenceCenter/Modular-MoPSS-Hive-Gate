@@ -114,14 +114,8 @@ uint8_t door1_moving = 0;         //flag if door is moving
 uint8_t door2_moving = 0;
 unsigned long door1_time;         //stores time when door starts moving
 unsigned long door2_time;
-uint16_t rotate1_duration;        //duration until door has finished movement
-uint16_t rotate2_duration;
-uint16_t door1_counter = 0;       //counter how often door was opened (used to reset door position)
-uint16_t door2_counter = 0;
-uint8_t door1_reset = 0;          //flag is set if door needs to be "re-set"
-uint8_t door2_reset = 0;
-uint8_t door1_just_closed = 0;    //relic from old code
-uint8_t door2_just_closed = 0;
+uint16_t door1_move_counter = 0;  //counts how often door was polled while moving and initiates experiment stop if door module becomes unresponsive
+uint16_t door2_move_counter = 0;
 
 unsigned long door1_poll_time;     //time when we should query the door module for a status update
 unsigned long door2_poll_time;
@@ -809,10 +803,7 @@ void loop()
     }
     
     //debug only, print buffer (all)
-    if((debug>=3)&&(sb==9)&&((IR_middleL_buffer_sum==10)||(IR_middleR_buffer_sum==10)))
-    {
-      createSENSORDataString("IRB",String(IR_middleL_buffer_sum)+":"+String(IR_middleR_buffer_sum),SENSORDataString);
-    }
+    if((debug>=3)&&(sb==9)&&((IR_middleL_buffer_sum==10)||(IR_middleR_buffer_sum==10))){SENSORDataString=createSENSORDataString("IRB",String(IR_middleL_buffer_sum)+":"+String(IR_middleR_buffer_sum),SENSORDataString);}
     if((debug>=4)&&(sb==9)){SENSORDataString=createSENSORDataString("IRB",String(IR_door1_buffer_sum)+":"+String(IR_door2_buffer_sum)+":"+String(IR_middleL_buffer_sum)+":"+String(IR_middleR_buffer_sum),SENSORDataString);}
   }
   
@@ -824,9 +815,18 @@ void loop()
     door1_poll_time = millis();
     door1_moving = getDoorStatus(door1);
     
+    //monitor how long door is "moving"
+    door1_move_counter++; //900 = 3min.
+    if(door1_move_counter >= 4500) //15min.
+    {
+      habituation_phase = 0; //STOP experiment!
+      SENSORDataString = createSENSORDataString("PNC","PANIC! D1",SENSORDataString);
+    }
+    
     if(!door1_moving)
     {
-      door1_open = !door1_open;
+      door1_move_counter = 0;   //reset counter that stops experiment if door module fails
+      door1_open = !door1_open; //toggle door status
       if(door1_open)
       {
         door1_time = door1_poll_time;
@@ -856,8 +856,17 @@ void loop()
     door2_poll_time = millis();
     door2_moving = getDoorStatus(door2);
     
+    //monitor how long door is "moving"
+    door2_move_counter++; //900 = 3min.
+    if(door2_move_counter >= 900)
+    {
+      habituation_phase = 0; //STOP experiment!
+      SENSORDataString = createSENSORDataString("PNC","PANIC! D2",SENSORDataString);
+    }
+    
     if(!door2_moving)
     {
+      door2_move_counter = 0;   //reset counter that stops experiment if door module fails
       door2_open = !door2_open;
       if(door2_open)
       {
@@ -881,6 +890,27 @@ void loop()
         }
       }
     }
+  }
+  
+  //----------------------------------------------------------------------------
+  //door management for phase 0 (PANIC) ----------------------------------------
+  //----------------------------------------------------------------------------
+  if(habituation_phase == 0)
+  {
+    //try opening doors three times
+    for(uint8_t i = 0;i < 3;i++)
+    {
+      moveDoorNoConfirm(door1,up,top,door1_speed);
+      SENSORDataString = createSENSORDataString("D1", "Panic Opening", SENSORDataString); //generate datastring
+      moveDoorNoConfirm(door2,up,top,door2_speed);
+      SENSORDataString = createSENSORDataString("D2", "Panic Opening", SENSORDataString); //generate datastring
+      delay(5000);
+    }
+    
+    door1_moving = 0;   //set flag, door is not moving so any further checking on the doors is omitted
+    door2_moving = 0;   //set flag, door is not moving
+    
+    habituation_phase = 9; //exit out of habituation phase 0 so RFID readers etc. will continue to work
   }
   
   //----------------------------------------------------------------------------
@@ -1144,7 +1174,7 @@ void loop()
     }
   }
   
-  //FAILSAFE 3 -----------------------------------------------------------------
+  //FAILSAFE 3 PANIC -----------------------------------------------------------
   //case: door-module is unresponsive or fails
 //  if(middle_IR blocked for too long)
 //  {
@@ -1244,7 +1274,7 @@ void loop()
     }
   }
   
-  //do stuff every 10 minutes (that needs rtc) ----------------------------------
+  //do stuff every 10 minutes (that needs rtc) ---------------------------------
   if((millis() - rtccheck_time) > 600000)
   {
     rtccheck_time = millis();
@@ -1273,7 +1303,7 @@ void loop()
   }
   
   //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-	//write Data to log files ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+	//write Data to log files ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 	//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
   
 	//log sensor/motor events
@@ -1662,6 +1692,27 @@ void moveDoor(uint8_t address, uint8_t direction, uint8_t target, uint16_t pulse
     }
     send_status = Wire.endTransmission();
   }
+}
+
+//------------------------------------------------------------------------------
+//used only in emergencies when it can't be guaranteed that the door module will aknowledge receive
+void moveDoorNoConfirm(uint8_t address, uint8_t direction, uint8_t target, uint16_t pulsetime)
+{
+  uint8_t sendbuffer[7] = {0,0,0,0,0,0,0};
+  sendbuffer[0] = 2;
+  
+  sendbuffer[1] = direction;
+  sendbuffer[2] = target;
+  
+  sendbuffer[3] = pulsetime & 0xff;
+  sendbuffer[4] = (pulsetime >> 8) & 0xff;
+  
+  Wire.beginTransmission(address); //address
+  for(uint8_t i = 0; i < 7; i++)
+  {
+    Wire.write(sendbuffer[i]);
+  }
+  Wire.endTransmission();
 }
 
 //------------------------------------------------------------------------------
