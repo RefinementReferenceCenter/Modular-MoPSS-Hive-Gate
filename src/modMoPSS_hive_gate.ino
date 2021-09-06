@@ -227,13 +227,13 @@ const uint8_t debug = 3;
 uint8_t habituation_phase = 3;
 
 //enable or disable multimice detection (if 1, only one mouse is allowed inside gate)
-uint8_t multimice = 0; //0 or 1
+uint8_t multimice = 1; //0 or 1
 
 //limit the number of mice allowed in the test cage (if 1, only one mouse may be in testcage -> mouse has to return)
 uint8_t mouse_limit = 0; //0 or 1
 
 //time mouse is kept in transition (inside gate) with both doors closed (ms)
-uint16_t transition_delay = 0; //ms
+uint16_t transition_delay = 500; //ms
 
 
 //door and transition management
@@ -1040,9 +1040,10 @@ void loop()
         if(debug>=3){SENSORDataString=createSENSORDataString("TM","to_tc3",SENSORDataString);}
         
         //multimice detection
-        if((IR_middleL_buffer_sum > 0) && (IR_middleR_buffer_sum > 0) && multimice) //both IR sensors are triggered
+        if((IR_middleL_buffer_sum > 9) && (IR_middleR_buffer_sum > 9) && multimice) //both IR sensors are triggered
         {
           transition_to_tc = 0; //abort transition, hc door opens and waits for mice to exit
+          if(debug>=3){SENSORDataString=createSENSORDataString("MM","MultiMice",SENSORDataString);}
         }
         else
         {
