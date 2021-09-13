@@ -230,7 +230,7 @@ uint8_t habituation_phase = 3;
 uint8_t multimice = 1; //0 or 1
 
 //limit the number of mice allowed in the test cage (if 1, only one mouse may be in testcage -> mouse has to return)
-uint8_t mouse_limit = 0; //0 or 1
+uint8_t mouse_limit = 1; //0 or 1
 
 //time mouse is kept in transition (inside gate) with both doors closed (ms)
 uint16_t transition_delay = 500; //ms
