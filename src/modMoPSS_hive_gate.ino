@@ -112,8 +112,8 @@ uint8_t door1_open = 0;           //flag if door is open
 uint8_t door2_open = 0;
 uint8_t door1_moving = 0;         //flag if door is moving
 uint8_t door2_moving = 0;
-unsigned long door1_time;         //stores time when door starts moving
-unsigned long door2_time;
+unsigned long door1_time;         //stores time
+unsigned long door2_time;         //stores time when door2 has finished opening (is open)
 uint16_t door1_move_counter = 0;  //counts how often door was polled while moving and initiates experiment stop if door module becomes unresponsive
 uint16_t door2_move_counter = 0;
 
@@ -1037,8 +1037,6 @@ void loop()
       //if a mouse is(was) present, continue
       if((IR_middleL_buffer_sum > 0) || (IR_middleR_buffer_sum > 0))
       {
-        if(debug>=3){SENSORDataString=createSENSORDataString("TM","to_tc3",SENSORDataString);}
-        
         //multimice detection
         if((IR_middleL_buffer_sum > 9) && (IR_middleR_buffer_sum > 9) && multimice) //both IR sensors are triggered
         {
@@ -1048,6 +1046,7 @@ void loop()
         else
         {
           transition_to_tc = 3; //phase 3, open door of target cage
+          if(debug>=3){SENSORDataString=createSENSORDataString("TM","to_tc3",SENSORDataString);}
           
           if(mouse_limit)
           {
@@ -1123,7 +1122,7 @@ void loop()
     moveDoor(door2,down,bottom,door2_speed);
     SENSORDataString = createSENSORDataString("D2", "Closing", SENSORDataString); //maximum logging
     
-    //manage failsafe for mouse that doesn't leave middle
+    //manage failsafe for mouse that doesn't leave middle << useless
     if(((millis() - door2_time) >= door2_stays_open_max) && tc_occupied)
     {
       //sets flag door2 closing after timeout when mouse should transition to tc
