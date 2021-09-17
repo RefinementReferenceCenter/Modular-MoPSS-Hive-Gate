@@ -119,6 +119,7 @@ uint16_t door2_move_counter = 0;
 
 unsigned long door1_poll_time;     //time when we should query the door module for a status update
 unsigned long door2_poll_time;
+unsigned long d2_closed_time;      //stores time when d2 closed
 
 //names for door module control
 const uint8_t top = 0;
@@ -130,7 +131,7 @@ const uint8_t bottom = 4;
 const uint8_t up = 0;
 const uint8_t down = 1;
 
-uint8_t door1_IR_state[7]; //0 IR_top, IR_upper, IR_middle, IR_lower, IR_bottom, IR_barrier_rx, 6 IR_barrier_tx
+uint8_t door1_IR_state[7];        //0 IR_top, IR_upper, IR_middle, IR_lower, IR_bottom, IR_barrier_rx, 6 IR_barrier_tx
 uint8_t door2_IR_state[7];
 
 //RFID
@@ -152,7 +153,7 @@ uint8_t lasttag2[6] = {};
 
 //TODO: test switching modes
 uint8_t RFIDmode = 1;           //select mode to operate in: 1-alternate, 2-reader1, 3-reader2
-uint8_t RFIDmode_firstrun = 1;   //to make sure the correct reader is turned on/off
+uint8_t RFIDmode_firstrun = 1;  //to make sure the correct reader is turned on/off
 
 //Experiment variables
 //0 = no transition, 1 = origin door opened, 2 = origin door closed, 3 = checks mice present, 4 = target door closing
@@ -165,8 +166,6 @@ uint8_t failsafe_triggered = 0;       //only needed for phase 2
 unsigned long starttime;        //start of programm
 unsigned long rtccheck_time;    //time the rtc was checked last
 
-uint8_t d2_timeout = 0;         //flag stores if d2 closed from timeout if transitioning to tc
-unsigned long d2_timeout_time;  //stores time when timeout happened
 
 //Mice tags
 const uint8_t mice = 15;           //number of mice in experiment (add 1 for mouse 0, add 2 for test-mice)
@@ -180,26 +179,18 @@ const uint8_t mouse_library[mice][6] = {
   {0x6B,0x6E,0xF7,0x90,0x2E,0xE1}, //mouse 6  sw_ro CBT3 {0x41,0x74,0xF7,0x90,0x2E,0xE1} | ro_si CBT2 {0x6B,0x6E,0xF7,0x90,0x2E,0xE1}
   {0x0F,0x71,0xF7,0x90,0x2E,0xE1}, //mouse 7  sw_we CBT3 {0x75,0x69,0xF7,0x90,0x2E,0xE1} | sw_we CBT2 {0x0F,0x71,0xF7,0x90,0x2E,0xE1}
   {0x77,0x6F,0xF7,0x90,0x2E,0xE1}, //mouse 8  sw_si CBT3 {0xCA,0x63,0xF7,0x90,0x2E,0xE1} | we_ge CBT2 {0x77,0x6F,0xF7,0x90,0x2E,0xE1}
-  {0x26,0x6E,0xF7,0x90,0x2E,0xE1}, //mouse 9  ro_ge CBT3 | x
-  {0xF4,0x72,0xF7,0x90,0x2E,0xE1}, //mouse 10 ro_we CBT3 | x
-  {0x6B,0x74,0xF7,0x90,0x2E,0xE1}, //mouse 11 ro_sw CBT3 | x
-  {0x0C,0x67,0xF7,0x90,0x2E,0xE1}, //mouse 12 ro_si CBT3 | x
+  {0x26,0x6E,0xF7,0x90,0x2E,0xE1}, //mouse 9  ro_ge CBT3 {0x26,0x6E,0xF7,0x90,0x2E,0xE1} | x
+  {0xF4,0x72,0xF7,0x90,0x2E,0xE1}, //mouse 10 ro_we CBT3 {0xF4,0x72,0xF7,0x90,0x2E,0xE1} | x
+  {0x6B,0x74,0xF7,0x90,0x2E,0xE1}, //mouse 11 ro_sw CBT3 {0x6B,0x74,0xF7,0x90,0x2E,0xE1} | x
+  {0x0C,0x67,0xF7,0x90,0x2E,0xE1}, //mouse 12 ro_si CBT3 {0x0C,0x67,0xF7,0x90,0x2E,0xE1} | x
   {0xA1,0x82,0x42,0xDD,0x3E,0xF3}, //mouse 13 polymorphmaus
   {0x66,0x6D,0xF7,0x90,0x2E,0xE1}  //mouse 14 bleistiftmaus2 900_200000630118 e12e90f76d66
 };
 uint8_t mice_visits[mice][2];      //contains the number of tag reads at reader 1 and 2 since last reset
 
-uint8_t update_current_mouse1 = 1; //flag for updating current mouse at reader 1
-uint8_t update_current_mouse2 = 1; //flag for updating current mouse at reader 2
 uint8_t current_mouse1 = 0;        //placeholder simple number for tag at reader 1
 uint8_t current_mouse2 = 0;        //placeholder simple number for tag at reader 2
 
-uint32_t oledt1 = 0;
-uint32_t oledt2 = 0;
-
-//TESTING
-uint8_t manual_trigger = 0; //manually trigger gate-events for testing
-uint32_t test_timer = 0;
 
 //##############################################################################
 //#####   U S E R   C O N F I G  ###############################################
@@ -881,6 +872,7 @@ void loop()
           //----- transition management
           if(debug>=3){SENSORDataString=createSENSORDataString("TM","to_tc0",SENSORDataString);}
           transition_to_tc = 0; //phase 5/0 target door closed
+          d2_closed_time = door2_poll_time; //stores time d2 is finished closing
           if(transition_to_hc == 1) //phase 2 only if already in phase 1
           {
             if(debug>=3){SENSORDataString=createSENSORDataString("TM","to_hc2",SENSORDataString);}
@@ -897,15 +889,11 @@ void loop()
   //----------------------------------------------------------------------------
   if(habituation_phase == 0)
   {
-    //try opening doors three times
-    for(uint8_t i = 0;i < 3;i++)
-    {
-      moveDoorNoConfirm(door1,up,top,door1_speed);
-      SENSORDataString = createSENSORDataString("D1", "Panic Opening", SENSORDataString); //generate datastring
-      moveDoorNoConfirm(door2,up,top,door2_speed);
-      SENSORDataString = createSENSORDataString("D2", "Panic Opening", SENSORDataString); //generate datastring
-      delay(5000);
-    }
+    //try opening doors
+    moveDoorNoConfirm(door1,up,top,door1_speed);
+    SENSORDataString = createSENSORDataString("D1", "Panic Opening", SENSORDataString); //generate datastring
+    moveDoorNoConfirm(door2,up,top,door2_speed);
+    SENSORDataString = createSENSORDataString("D2", "Panic Opening", SENSORDataString); //generate datastring
     
     door1_moving = 0;   //set flag, door is not moving so any further checking on the doors is omitted
     door2_moving = 0;   //set flag, door is not moving
@@ -1122,15 +1110,6 @@ void loop()
     moveDoor(door2,down,bottom,door2_speed);
     SENSORDataString = createSENSORDataString("D2", "Closing", SENSORDataString); //maximum logging
     
-    //manage failsafe for mouse that doesn't leave middle << useless
-    if(((millis() - door2_time) >= door2_stays_open_max) && tc_occupied)
-    {
-      //sets flag door2 closing after timeout when mouse should transition to tc
-      d2_timeout = 1;
-      //save time to evaluate failsafe
-      d2_timeout_time = millis();
-    }
-    
     door2_poll_time = millis();
     door2_moving = 1;
   }
@@ -1146,18 +1125,13 @@ void loop()
     SENSORDataString = createSENSORDataString("FS", "failsafe1", SENSORDataString); //generate datastring
     if(debug>=3){SENSORDataString=createSENSORDataString("TM","to_hc3",SENSORDataString);}
     transition_to_hc = 3;
-  }
-  
-  //if FS1 occured within 3sec. after door 2 has closed, reset tc occupation (mouse never left towards tc, stayed in middle)
-  if(mouse_limit)
-  {
-    if(d2_timeout && ((millis() - d2_timeout_time) <= 3000))
+    
+    //if FS1 occurs within 2 seconds after door 2 has closed we can assume that the mouse never left the middle or middle is not empty
+    if(mouse_limit && ((millis() - d2_closed_time) <= 2000)) //this needs a timeout as a mouse may gain entrance through D1
     {
-      //reset flag
-      d2_timeout = 0;
-      //reset tc occupied
+      SENSORDataString = createSENSORDataString("FS","failsafe3",SENSORDataString);
       if(debug>=3){SENSORDataString=createSENSORDataString("TM","tc_occ=0",SENSORDataString);}
-      tc_occupied = 0;
+      tc_occupied = 0; //reset TC occopation
     }
   }
   
