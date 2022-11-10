@@ -1,0 +1,105 @@
+//
+// !!! WARNING !!! AUTO-GENERATED FILE!
+// PLEASE DO NOT MODIFY IT AND USE "platformio.ini":
+// https://docs.platformio.org/page/projectconf/section_env_build.html#build-flags
+//
+{
+    "configurations": [
+        {
+            "name": "PlatformIO",
+            "includePath": [
+                "/home/purzel/github vscode/Modular-MoPSS-Hive-Gate/include",
+                "/home/purzel/github vscode/Modular-MoPSS-Hive-Gate/src",
+                "/home/purzel/github vscode/Modular-MoPSS-Hive-Gate/lib/WiFiNINA-Adafruit/src",
+                "/home/purzel/github vscode/Modular-MoPSS-Hive-Gate/.pio/libdeps/adafruit_itsybitsy_m0/U8g2/src",
+                "/home/purzel/github vscode/Modular-MoPSS-Hive-Gate/.pio/libdeps/adafruit_itsybitsy_m0/RTClib/src",
+                "/home/purzel/github vscode/Modular-MoPSS-Hive-Gate/.pio/libdeps/adafruit_itsybitsy_m0/Adafruit DotStar",
+                "/home/purzel/github vscode/Modular-MoPSS-Hive-Gate/.pio/libdeps/adafruit_itsybitsy_m0/Adafruit BusIO",
+                "/home/purzel/.platformio/packages/framework-arduino-samd-adafruit/libraries/Wire",
+                "/home/purzel/github vscode/Modular-MoPSS-Hive-Gate/.pio/libdeps/adafruit_itsybitsy_m0/RTCZero/src",
+                "/home/purzel/github vscode/Modular-MoPSS-Hive-Gate/.pio/libdeps/adafruit_itsybitsy_m0/SD/src",
+                "/home/purzel/.platformio/packages/framework-arduino-samd-adafruit/libraries/SPI",
+                "/home/purzel/.platformio/packages/framework-arduino-samd-adafruit/libraries/Adafruit_ZeroDMA",
+                "/home/purzel/.platformio/packages/framework-arduino-samd-adafruit/libraries/Adafruit_ZeroDMA/utility",
+                "/home/purzel/.platformio/packages/framework-arduino-samd-adafruit/libraries/Adafruit_TinyUSB_Arduino/src",
+                "/home/purzel/.platformio/packages/framework-cmsis/CMSIS/Core/Include",
+                "/home/purzel/.platformio/packages/framework-cmsis-atmel/CMSIS/Device/ATMEL",
+                "/home/purzel/.platformio/packages/framework-arduino-samd-adafruit/cores/arduino",
+                "/home/purzel/.platformio/packages/framework-arduino-samd-adafruit/libraries/Adafruit_TinyUSB_Arduino/src/arduino",
+                "/home/purzel/.platformio/packages/framework-cmsis/CMSIS/DSP/Include",
+                "/home/purzel/.platformio/packages/framework-arduino-samd-adafruit/variants/itsybitsy_m0",
+                "/home/purzel/github vscode/Modular-MoPSS-Hive-Gate/.pio/libdeps/adafruit_itsybitsy_m0/TinyWireM",
+                "/home/purzel/.platformio/packages/framework-arduino-samd-adafruit/libraries/CI_Tests",
+                "/home/purzel/.platformio/packages/framework-arduino-samd-adafruit/libraries/HID",
+                "/home/purzel/.platformio/packages/framework-arduino-samd-adafruit/libraries/I2S/src",
+                "/home/purzel/.platformio/packages/framework-arduino-samd-adafruit/libraries/SAMD_AnalogCorrection/src",
+                "/home/purzel/.platformio/packages/framework-arduino-samd-adafruit/libraries/SDU/src",
+                "/home/purzel/.platformio/packages/framework-arduino-samd-adafruit/libraries/Servo/src",
+                "/home/purzel/.platformio/packages/framework-arduino-samd-adafruit/libraries/USBHost/src",
+                ""
+            ],
+            "browse": {
+                "limitSymbolsToIncludedHeaders": true,
+                "path": [
+                    "/home/purzel/github vscode/Modular-MoPSS-Hive-Gate/include",
+                    "/home/purzel/github vscode/Modular-MoPSS-Hive-Gate/src",
+                    "/home/purzel/github vscode/Modular-MoPSS-Hive-Gate/lib/WiFiNINA-Adafruit/src",
+                    "/home/purzel/github vscode/Modular-MoPSS-Hive-Gate/.pio/libdeps/adafruit_itsybitsy_m0/U8g2/src",
+                    "/home/purzel/github vscode/Modular-MoPSS-Hive-Gate/.pio/libdeps/adafruit_itsybitsy_m0/RTClib/src",
+                    "/home/purzel/github vscode/Modular-MoPSS-Hive-Gate/.pio/libdeps/adafruit_itsybitsy_m0/Adafruit DotStar",
+                    "/home/purzel/github vscode/Modular-MoPSS-Hive-Gate/.pio/libdeps/adafruit_itsybitsy_m0/Adafruit BusIO",
+                    "/home/purzel/.platformio/packages/framework-arduino-samd-adafruit/libraries/Wire",
+                    "/home/purzel/github vscode/Modular-MoPSS-Hive-Gate/.pio/libdeps/adafruit_itsybitsy_m0/RTCZero/src",
+                    "/home/purzel/github vscode/Modular-MoPSS-Hive-Gate/.pio/libdeps/adafruit_itsybitsy_m0/SD/src",
+                    "/home/purzel/.platformio/packages/framework-arduino-samd-adafruit/libraries/SPI",
+                    "/home/purzel/.platformio/packages/framework-arduino-samd-adafruit/libraries/Adafruit_ZeroDMA",
+                    "/home/purzel/.platformio/packages/framework-arduino-samd-adafruit/libraries/Adafruit_ZeroDMA/utility",
+                    "/home/purzel/.platformio/packages/framework-arduino-samd-adafruit/libraries/Adafruit_TinyUSB_Arduino/src",
+                    "/home/purzel/.platformio/packages/framework-cmsis/CMSIS/Core/Include",
+                    "/home/purzel/.platformio/packages/framework-cmsis-atmel/CMSIS/Device/ATMEL",
+                    "/home/purzel/.platformio/packages/framework-arduino-samd-adafruit/cores/arduino",
+                    "/home/purzel/.platformio/packages/framework-arduino-samd-adafruit/libraries/Adafruit_TinyUSB_Arduino/src/arduino",
+                    "/home/purzel/.platformio/packages/framework-cmsis/CMSIS/DSP/Include",
+                    "/home/purzel/.platformio/packages/framework-arduino-samd-adafruit/variants/itsybitsy_m0",
+                    "/home/purzel/github vscode/Modular-MoPSS-Hive-Gate/.pio/libdeps/adafruit_itsybitsy_m0/TinyWireM",
+                    "/home/purzel/.platformio/packages/framework-arduino-samd-adafruit/libraries/CI_Tests",
+                    "/home/purzel/.platformio/packages/framework-arduino-samd-adafruit/libraries/HID",
+                    "/home/purzel/.platformio/packages/framework-arduino-samd-adafruit/libraries/I2S/src",
+                    "/home/purzel/.platformio/packages/framework-arduino-samd-adafruit/libraries/SAMD_AnalogCorrection/src",
+                    "/home/purzel/.platformio/packages/framework-arduino-samd-adafruit/libraries/SDU/src",
+                    "/home/purzel/.platformio/packages/framework-arduino-samd-adafruit/libraries/Servo/src",
+                    "/home/purzel/.platformio/packages/framework-arduino-samd-adafruit/libraries/USBHost/src",
+                    ""
+                ]
+            },
+            "defines": [
+                "PLATFORMIO=60103",
+                "ARDUINO_ITSYBITSY_M0",
+                "ADAFRUIT_ITSYBITSY_M0",
+                "CRYSTALLESS",
+                "ARM_MATH_CM0PLUS",
+                "__SAMD21G18A__",
+                "ARDUINO=10805",
+                "F_CPU=48000000L",
+                "USBCON",
+                "USB_VID=0x239A",
+                "USB_PID=0x800F",
+                "USB_PRODUCT=\"ItsyBitsy M0 Express\"",
+                "USB_MANUFACTURER=\"Adafruit\"",
+                "ARDUINO_ARCH_SAMD",
+                "USB_CONFIG_POWER=100",
+                "ARDUINO_SAMD_ADAFRUIT",
+                ""
+            ],
+            "cStandard": "c11",
+            "cppStandard": "c++11",
+            "compilerPath": "/home/purzel/.platformio/packages/toolchain-gccarmnoneeabi/bin/arm-none-eabi-gcc",
+            "compilerArgs": [
+                "-mcpu=cortex-m0plus",
+                "-mthumb",
+                ""
+            ]
+        }
+    ],
+    "version": 4
+}
