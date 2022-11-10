@@ -1,29 +1,28 @@
 //------------------------------------------------------------------------------
 /*
---- Adafruit ItsyBitsy M0 pin mapping - Hardware Revision v6.1 ---
+--- Hardware Revision v7.0 ---
 
- A0- (J5 upper 2-pin)
- A1- Button 1,2,3
- A2- uSD ChipSelect
- A3- (J3 lower 3-pin)
- A4- (J2 lower 3-pin)
- A5- (J1 lower 3-pin)
+D36,D37 - X1
+A14,A15 - X2
+A11,A10 - X3
+A16,A17 - X4
+A1,A0   - X5
+A6,A7   - X6
+A8,A9   - X7
+D3,D2   - X8
 
- D0- (J4 upper debounce 2-pin)
- D1- RTC INTerrupt/SQuareWave
- D2- (J1 upper 3-pin)
- D3- (J2 upper 3-pin)
- D4- (J3 upper debounce 2-pin)
- D5- DEBUG for timing (5V out!)
- D7- (J4 lower 3-pin)
- D9- (J5 lower 3-pin)
-D10- WiFi GPIO 0
-D11- WiFi Busy
-D12- WiFi Reset
-D13- WiFi CS
+D29 - J1
+D28 - J2
+D33 - J3
+D9  - J4
+D8  - J5
+D7  - J6
+D6  - J7
 
-D22- I2C SDA
-D23- I2C SCL
+D32 - ERR LED
+D31 - STAT LED
+A13 - B1,B2,B3
+
 
 --- Experimental Setup ---
 
@@ -40,18 +39,19 @@ ______/                   |-----   X cm   ----|                  \________
 */
 
 //------------------------------------------------------------------------------
+#include <TimeLib.h>
 #include <Wire.h>             //I2C communication
-#include <SD.h>               //Access to SD card
-#include <RTClib.h>           //(Adafruit) Provides softRTC as a workaround
-#include <WiFiNINA.h>         //(Adafruit) Wifi Chipset modified version from Adafruit
-#include <Adafruit_DotStar.h> //(Adafruit) controlling the onboard dotstar RGB LED
-#include <U8g2lib.h>          //for SSD1306 OLED Display
+//#include <SD.h>               //Access to SD card
+//#include <RTClib.h>           //(Adafruit) Provides softRTC as a workaround
+//#include <WiFiNINA.h>         //(Adafruit) Wifi Chipset modified version from Adafruit
+//#include <Adafruit_DotStar.h> //(Adafruit) controlling the onboard dotstar RGB LED
+//#include <U8g2lib.h>          //for SSD1306 OLED Display
 
 //----- declaring variables ----------------------------------------------------
 //Current Version of the program
 //##############################################################################
 //##############################################################################
-const char HARDWARE_REV[] = "v6.1";
+const char HARDWARE_REV[] = "v7.0";
 //##############################################################################
 //##############################################################################
 
@@ -78,23 +78,12 @@ uint8_t IR_middleL_buffer_sum = 0;
 uint8_t IR_middleR_buffer_sum = 0;
 unsigned long IRsensor_time;       //time when IR sensors 1,2,3 were last checked
 
-//LEDs
-volatile uint8_t ledstate = LOW;
-Adafruit_DotStar strip(1, 41, 40, DOTSTAR_BRG); //create dotstar object
-
 //SD
 const uint8_t SDcs = A2; //ChipSelect pin for SD (SPI)
 File dataFile;           //create file object
 
-//WiFi
-char ssid[] = "Buchhaim";           //network name
-char pass[] = "2416AdZk3881QPnh+";  //WPA key
-int status = WL_IDLE_STATUS;        //initialize for first check if wifi up
-#define SPIWIFI SPI                  //the SPI port
-
 //RTC - Real Time Clock
 const uint8_t GMT = 1;  //current timezone (Winterzeit)
-RTC_DS3231 rtc;         //create rtc object
 
 //Display
 U8G2_SSD1306_128X64_NONAME_F_HW_I2C oled(U8G2_R0,U8X8_PIN_NONE,23,22); //def,reset,SCL,SDA
@@ -207,9 +196,6 @@ uint32_t test_timer = 0;
 //#####   U S E R   C O N F I G  ###############################################
 //##############################################################################
 
-//if set to 1, the MoPSS will wait for a wifi connection and synchronization with network time before continuing
-const uint8_t enable_wifi = 0;
-
 //if set to 1, the MoPSS will wait until a serial connection via USB is established
 //before continuing. Also prints what is written to uSD to Serial as well.
 const uint8_t is_testing = 1;
@@ -295,11 +281,7 @@ const uint32_t warn_time = 60*60*24*1000;
 void setup()
 {
   //----- DEBUGGING ------------------------------------------------------------
-  pinMode(5,OUTPUT); //to allow port toggle for timing purposes D5 PA15
-  
-  //Set up RGB LED on board, and turn it off ------------------------------------
-  strip.begin(); //Initialize pins for output
-  strip.show();  //Turn all LEDs off ASAP
+  //pinMode(5,OUTPUT); //to allow port toggle for timing purposes D5 PA15
   
   //----- communication --------------------------------------------------------
   //start Serial communication
@@ -318,6 +300,11 @@ void setup()
   oled.begin();
   oled.setFont(u8g2_font_6x10_mf); //set font w5 h10
   OLEDprint(0,0,1,1,">>> Module Setup <<<");
+
+  //----- Real Time Clock ------------------------------------------------------
+  //setSyncProvider(getTeensy3Time);
+  setTime(Teensy3Clock.get());
+  
 
   //----- RFID readers ---------------------------------------------------------
   OLEDprint(1,0,0,1,"Setup RFID readers...");
@@ -358,90 +345,6 @@ void setup()
   OLEDprint(4,0,0,1,"-Done");
   delay(1000); //small delay before clearing display in next step
   
-  //----- WiFi -----------------------------------------------------------------
-  OLEDprint(0,0,1,1,">>>  WiFi Setup  <<<");
-  
-  if(enable_wifi == 1)
-	{
-		Serial.println("----- WiFi Setup -----"); //check if the WiFi module works
-    OLEDprint(1,0,0,1,"Connect to WiFi...");
-    OLEDprint(2,0,0,1,"SSID:Buchhaim");
-    OLEDprint(3,0,0,1,"Key:2416AdZk3881QPnh+");
-    
-    WiFi.setPins(13, 11, 12, -1, &SPIWIFI); //function only available in adafruit WiFi library
-    
-		if(WiFi.status() == WL_NO_MODULE)
-    {
-			Serial.println("WiFi chip not working/disconnected, program stopped!");
-      OLEDprint(4,0,0,1,"---WiFi not working");
-      OLEDprint(5,0,0,1,"---program stopped!");
-			criticalerror(); //don't continue
-		}
-    
-    //attempt to connect to WiFi network:
-    Serial.print("Connecting to SSID: ");
-    Serial.println(ssid);
-    OLEDprint(4,0,0,1,"-Connecting: Try:");
-    uint8_t numberOfTries = 0;
-    while(status != WL_CONNECTED)
-    {
-      numberOfTries++;
-      Serial.print("Waiting to connect, attempt No.: ");
-      Serial.println(numberOfTries);
-      OLEDprint(4,17,0,1,numberOfTries);
-      
-      //Connect to WPA/WPA2 network
-      status = WiFi.begin(ssid, pass);
-      
-      //wait 10 seconds between each connection attempt
-      delay(10000);
-    }
-    Serial.println("Successfully connected!");
-    OLEDprint(4,0,0,1,"-Connecting: Success! ");
-    
-    //----- Real Time Clock ------------------------------------------------------
-    Serial.println("----- RTC Setup -----");
-    
-    unsigned long epoch = 0; //stores the time in seconds since beginning
-    
-    //repeatedly contact NTP server
-    Serial.println("Attempting to reach NTP server");
-    OLEDprint(5,0,0,1,"-Sync RTC: Try:");
-    numberOfTries = 0;
-    while(epoch == 0)
-    {
-      numberOfTries++;
-      Serial.print("Attempt No. ");
-      Serial.println(numberOfTries);
-      OLEDprint(5,16,0,1,numberOfTries);
-      
-      delay(1000);
-      epoch = WiFi.getTime();
-    }
-    
-    rtc.adjust(DateTime(epoch));
-    
-    Serial.print("Success! Time received: ");
-    Serial.println(nicetime());
-    OLEDprint(5,0,0,1,"-Sync RTC: Success!   ");
-    
-    //disable wifi module after fetching time to conserve power (~83mA)
-    WiFi.end();
-  } //enablewifibracket
-  
-  //Set time to zero if WiFi isn't enabled
-  if(enable_wifi == 0)
-  {
-    OLEDprint(1,0,0,1,"WiFi disabled");
-    OLEDprint(2,0,0,1,"Setting time to:");
-    OLEDprint(3,0,0,1,"01.01.2000 00:00:00");
-    WiFi.setPins(13, 11, 12, -1, &SPIWIFI); //function only available in adafruit WiFi library
-    rtc.adjust(DateTime(946684800));
-    Serial.println("WiFi disabled, setting time to 0");
-    WiFi.end(); //disable wifi module TODO: not working
-  }
-  delay(1000); //short delay to allow reading of scrren
-  
   //----- Setup SD Card --------------------------------------------------------
   Serial.println("----- SD-Card Setup -----");
   OLEDprint(0,0,1,1,">>>  uSD  Setup  <<<");
@@ -462,7 +365,7 @@ void setup()
   
   //----- Setup log file, and write initial configuration ----------------------
   //open file, or create if empty
-  dataFile = SD.open("RFIDLOG.TXT", FILE_WRITE); //TODO: add date to filename
+  dataFile = SD.open("RFIDLOG.TXT", FILE_WRITE);
   DateTime now = rtc.now();
   
   //get experiment start time
@@ -507,21 +410,17 @@ void setup()
   //---- setup experiment variables --------------------------------------------
   
   //initialize last seen time with starttime unless provided in setup section
-  for(uint8_t i = 1; i < mice; i++) //exclude mouse 0 from time
-  {
-    if(mouse_last_seen[i] == 0)
-    {
+  for(uint8_t i = 1; i < mice; i++){ //exclude mouse 0 from time
+    if(mouse_last_seen[i] == 0){
       mouse_last_seen[i] = starttime;
     }
   }
   
   //Move both doors up for habituation phase 1
-  if(habituation_phase == 1)
-  {
+  if(habituation_phase == 1){
     moveDoor(door1,up,top,door1_speed);
     moveDoor(door2,up,top,door2_speed);
-    while(getDoorStatus(door1) || getDoorStatus(door2)) //while busy wait for move to finish
-    {
+    while(getDoorStatus(door1) || getDoorStatus(door2)){ //while busy wait for move to finish
       delay(250);
     }
   }
@@ -531,8 +430,7 @@ void setup()
 //##############################################################################
 //#####   L O O P   ############################################################
 //##############################################################################
-void loop()
-{
+void loop(){
   //----------------------------------------------------------------------------
   //record RFID tags -----------------------------------------------------------
   //----------------------------------------------------------------------------
@@ -547,16 +445,13 @@ void loop()
   String RFIDdataString = "";
   
   //switch between RFID readers
-  switch(RFIDmode)
-  {
+  switch(RFIDmode){
     //alternately switch between both readers
     case 1:
-      if((millis() - RFIDtime) >= 100)
-      {
+      if((millis() - RFIDtime) >= 100){
         RFIDtime = millis();
         
-        if(RFIDtoggle == 1)
-        {
+        if(RFIDtoggle == 1){
           RFIDtoggle = 0; //toggle the toggle
 
           //enable reader2, disable reader1
@@ -1687,67 +1582,9 @@ void closeDoorFB(uint8_t address, uint8_t start, uint8_t stop)
 // }
 
 //critical error, flash LED SOS ------------------------------------------------
-void criticalerror()
-{
-  while(1)
-  {
-    strip.setPixelColor(0,255,0,0);
-    strip.show();
-    delay(100);
-    strip.setPixelColor(0,0,0,0);
-    strip.show();
-    delay(100);
-    strip.setPixelColor(0,255,0,0);
-    strip.show();
-    delay(100);
-    strip.setPixelColor(0,0,0,0);
-    strip.show();
-    delay(100);
-    strip.setPixelColor(0,255,0,0);
-    strip.show();
-    delay(100);
-    strip.setPixelColor(0,0,0,0);
-    strip.show();
-    delay(100);
-    
-    strip.setPixelColor(0,255,0,0);
-    strip.show();
-    delay(300);
-    strip.setPixelColor(0,0,0,0);
-    strip.show();
-    delay(100);
-    strip.setPixelColor(0,255,0,0);
-    strip.show();
-    delay(300);
-    strip.setPixelColor(0,0,0,0);
-    strip.show();
-    delay(100);
-    strip.setPixelColor(0,255,0,0);
-    strip.show();
-    delay(300);
-    strip.setPixelColor(0,0,0,0);
-    strip.show();
-    delay(100);
-    
-    strip.setPixelColor(0,255,0,0);
-    strip.show();
-    delay(100);
-    strip.setPixelColor(0,0,0,0);
-    strip.show();
-    delay(100);
-    strip.setPixelColor(0,255,0,0);
-    strip.show();
-    delay(100);
-    strip.setPixelColor(0,0,0,0);
-    strip.show();
-    delay(100);
-    strip.setPixelColor(0,255,0,0);
-    strip.show();
-    delay(100);
-    strip.setPixelColor(0,0,0,0);
-    strip.show();
-    delay(500);
-    
+void criticalerror(){
+  while(1){
+
   }
 }
 
