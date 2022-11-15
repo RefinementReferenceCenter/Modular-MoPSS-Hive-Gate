@@ -1,6 +1,7 @@
-//------------------------------------------------------------------------------
-/*
+/*------------------------------------------------------------------------------
+
 --- Hardware Revision v7.0 ---
+Teensy 4.1 (with ethernet)
 
 D36,D37 - X1
 A14,A15 - X2
@@ -28,22 +29,19 @@ A13 - B1,B2,B3
 
 ^^^^^^^\                                                         /^^^^^^^^
        |                                                         |
-h c    |     |R|    |I| | D |   |I|   |I|   | D | |I|    |R|     |    t  c
-o a  ––|–––––|F|––––|R|–| O |–––|R|–-–|R|–-–| O |–|R|––––|F|–––––|––  e  a
-m g    |     |I|    | | | O |   | |   | |   | O | | |    |I|     |    s  g
-e e  ––|–––––|D|––––| |–| R |–––| |–-–| |––-| R |–| |––––|D|–––––|––  t  e
+h  c   |     |R|    |I| | D |   |I|   |I|   | D | |I|    |R|     |    t  c
+o  a ––|–––––|F|––––|R|–| O |–––|R|---|R|---| O |–|R|––––|F|–––––|––  e  a
+m  g   |     |I|    | | | O |   | |   | |   | O | | |    |I|     |    s  g
+e  e ––|–––––|D|––––| |-| R |–––| |---| |---| R |–| |––––|D|–––––|––  t  e
        |     |1|    |1| | 1 |   |3|   |4|   | 2 | |2|    |2|     |
        |                                                         |
-______/                   |-----   X cm   ----|                  \________
+_______/                  |-----   X cm   ----|                  \________
 
-*/
-
-//------------------------------------------------------------------------------
-#include <TimeLib.h>
-#include <Wire.h>             //I2C communication
-//#include <SD.h>               //Access to SD card
-#include "SdFat.h"
-#include <U8g2lib.h>          //for SSD1306 OLED Display
+*///------------------------------------------------------------------------------
+#include <TimeLib.h>  //Manage Real Time CLock
+#include <Wire.h>     //I2C communication
+#include "SdFat.h"    //Access SD Cards
+#include <U8g2lib.h>  //for SSD1306 OLED Display
 
 //----- declaring variables ----------------------------------------------------
 //Current Version of the program
@@ -85,17 +83,12 @@ unsigned long IRsensor_time;       //time when IR sensors 1,2,3 were last checke
 //SD
 #define SD_FAT_TYPE 3
 #define SPI_CLOCK SD_SCK_MHZ(16)
-const uint8_t SDcs = 10;
-const uint8_t SDBcs = 44;
+const uint8_t SDcs = 10;    //Chip Select External SD
 SdFs SD;
 FsFile dataFile;
+const uint8_t SDBcs = 44;   //Chip Select Internal SD
 SdFs SDb;
 FsFile dataFileBackup;
-
-
-//RTC - Real Time Clock
-//const uint8_t GMT = 1;  //current timezone (Winterzeit)
-time_t RTCTime;
 
 //Display
 U8G2_SSD1306_128X64_NONAME_F_HW_I2C oled(U8G2_R0,U8X8_PIN_NONE,23,22); //def,reset,SCL,SDA
@@ -153,7 +146,6 @@ uint8_t currenttag2[6] = {};
 uint8_t lasttag1[6] = {};         //saves id of the tag that was read during the previous read cycle
 uint8_t lasttag2[6] = {};
 
-//TODO: test switching modes
 uint8_t RFIDmode = 1;           //select mode to operate in: 1-alternate, 2-reader1, 3-reader2
 uint8_t RFIDmode_firstrun = 1;   //to make sure the correct reader is turned on/off
 
@@ -199,10 +191,6 @@ uint8_t current_mouse2 = 0;        //placeholder simple number for tag at reader
 
 uint32_t oledt1 = 0;
 uint32_t oledt2 = 0;
-
-//TESTING
-uint8_t manual_trigger = 0; //manually trigger gate-events for testing
-uint32_t test_timer = 0;
 
 //##############################################################################
 //#####   U S E R   C O N F I G  ###############################################
@@ -290,8 +278,7 @@ const uint32_t warn_time = 60*60*24*1000;
 //##############################################################################
 //#####   S E T U P   ##########################################################
 //##############################################################################
-void setup()
-{
+void setup(){
   //----- DEBUGGING ------------------------------------------------------------
   //pinMode(5,OUTPUT); //to allow port toggle for timing purposes D5 PA15
   
@@ -806,8 +793,8 @@ void loop(){
     
     //DOOR 1/2 CLOSING
     if(door1_open && !door1_moving && door2_open && !door2_moving && //open and not moving
-      ((millis() - door1_time) >= door1_stays_open_min) && //minimum open time passed
-      ((!IR_middleL_buffer_sum && !IR_middleR_buffer_sum) || ((millis() - door1_time) >= door1_stays_open_max))){ //doors and middle is not blocked OR maximum open time passed: takes precedence above all conditions
+    ((millis() - door1_time) >= door1_stays_open_min) && //minimum open time passed
+    ((!IR_middleL_buffer_sum && !IR_middleR_buffer_sum) || ((millis() - door1_time) >= door1_stays_open_max))){ //doors and middle is not blocked OR maximum open time passed: takes precedence above all conditions
       //----- door management
       moveDoor(door1,down,bottom,door1_speed);
       SENSORDataString = createSENSORDataString("D1", "Closing", SENSORDataString); //maximum logging
@@ -841,7 +828,7 @@ void loop(){
       sensor1_triggered = 0; //clear flag
       
       if(!door1_open && !door1_moving && !door2_open && !door2_moving && (transition_to_tc == 0) && //all closed and not moving and not in transition towards testcage
-        (((transition_to_hc == 0) && !IR_middleL_buffer_sum && !IR_middleR_buffer_sum && !tc_occupied) || (transition_to_hc == 3))){ //not transitioning to hc and middle must be empty OR already transitioning to hc
+      (((transition_to_hc == 0) && !IR_middleL_buffer_sum && !IR_middleR_buffer_sum && !tc_occupied) || (transition_to_hc == 3))){ //not transitioning to hc and middle must be empty OR already transitioning to hc
 
         //----- door management
         moveDoor(door1,up,top,door1_speed);
@@ -864,8 +851,8 @@ void loop(){
     
     //DOOR 1 CLOSING
     if(door1_open && !door1_moving && ((millis() - door1_time) >= door1_stays_open_min) && //open, not moving and minimum open time passed
-        ( ((transition_to_tc == 1) || (!IR_middleL_buffer_sum && !IR_middleR_buffer_sum && (transition_to_hc == 4))) || //starting a transition i.e. has yet to enter middle OR has to leave middle from transition
-          ((millis() - door1_time) >= door1_stays_open_max) )){ //OR maximum time passed: takes precedence above all conditions
+    ( ((transition_to_tc == 1) || (!IR_middleL_buffer_sum && !IR_middleR_buffer_sum && (transition_to_hc == 4))) || //starting a transition i.e. has yet to enter middle OR has to leave middle from transition
+    ((millis() - door1_time) >= door1_stays_open_max) )){ //OR maximum time passed: takes precedence above all conditions
       //----- door management
       moveDoor(door1,down,bottom,door1_speed);
       SENSORDataString = createSENSORDataString("D1", "Closing", SENSORDataString); //maximum logging
@@ -954,8 +941,8 @@ void loop(){
     
     //DOOR 2 CLOSING
     if(door2_open && !door2_moving && ((millis() - door2_time) >= door2_stays_open_min) && //open and not moving and minimum open time passed
-        (((transition_to_hc == 1) || (!IR_middleL_buffer_sum && !IR_middleR_buffer_sum && (transition_to_tc == 4))) || //starting a transition i.e. has yet to enter middle OR has to leave middle from transition
-          ((millis() - door2_time) >= door2_stays_open_max))){ //OR maximum time passed: takes precedence above all conditions
+    (((transition_to_hc == 1) || (!IR_middleL_buffer_sum && !IR_middleR_buffer_sum && (transition_to_tc == 4))) || //starting a transition i.e. has yet to enter middle OR has to leave middle from transition
+    ((millis() - door2_time) >= door2_stays_open_max))){ //OR maximum time passed: takes precedence above all conditions
       //----- door management
       moveDoor(door2,down,bottom,door2_speed);
       SENSORDataString = createSENSORDataString("D2", "Closing", SENSORDataString); //maximum logging
@@ -977,7 +964,7 @@ void loop(){
     //cases: mouse manually opens door 1 or 2 and gets into middle
     //if a mouse is detected 8/10, open door towards home cage
     if(!door1_open && !door1_moving && !door2_open && !door2_moving && //all closed and not moving
-      (transition_to_hc == 0) && (transition_to_tc == 0) && ((IR_middleL_buffer_sum >= 8) || (IR_middleR_buffer_sum >= 8) )){ //not transitioning and IR middle triggered
+    (transition_to_hc == 0) && (transition_to_tc == 0) && ((IR_middleL_buffer_sum >= 8) || (IR_middleR_buffer_sum >= 8) )){ //not transitioning and IR middle triggered
       //create log entry, failsafe triggered and emulate transition: mouse has to leave towards homecage
       SENSORDataString = createSENSORDataString("FS", "failsafe1", SENSORDataString); //generate datastring
       if(debug>=3) SENSORDataString=createSENSORDataString("TM","to_hc3",SENSORDataString);
@@ -1133,6 +1120,7 @@ void loop(){
 //#####   F U N C T I O N S   ##################################################
 //##############################################################################
 
+//Get Time from internal RTC (updated on program upload)
 time_t getTeensy3Time(){
   return Teensy3Clock.get();
   }
@@ -1455,9 +1443,9 @@ void closeDoorFB(uint8_t address, uint8_t start, uint8_t stop){
 void criticalerror(){
   while(1){
     digitalWrite(errorLED,HIGH);
-    delay(250);
+    delay(200);
     digitalWrite(errorLED,LOW);
-    delay(250);
+    delay(200);
   }
 }
 
