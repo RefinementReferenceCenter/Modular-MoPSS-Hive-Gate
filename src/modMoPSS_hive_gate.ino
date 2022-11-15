@@ -1,9 +1,7 @@
 /*------------------------------------------------------------------------------
+- PJRC Teensy 4.1 (with ethernet) pin mapping - Hardware Revision v7.0
 
---- Hardware Revision v7.0 ---
-Teensy 4.1 (with ethernet)
-
-D36,D37 - X1
+D36,D37 - X1 dual-infrared lightbarrier connectors (S|S|GND|+12V)
 A14,A15 - X2
 A11,A10 - X3
 A16,A17 - X4
@@ -12,7 +10,7 @@ A6,A7   - X6
 A8,A9   - X7
 D3,D2   - X8
 
-D29 - J1
+D29 - J1  multi-purpose 3-pin connectors (+12V|GND|Signal)
 D28 - J2
 D33 - J3
 D9  - J4
@@ -20,9 +18,9 @@ D8  - J5
 D7  - J6
 D6  - J7
 
-D32 - ERR LED
-D31 - STAT LED
-A13 - B1,B2,B3
+D32 - ERR LED   Error LED, used for various error states
+D31 - STAT LED  Status LED, can be used to signal stuff
+A13 - B1,B2,B3  Input from the three buttons on the board
 
 
 --- Experimental Setup ---
@@ -37,7 +35,7 @@ e  e ––|–––––|D|––––| |-| R |–––| |---| |---| R |–
        |                                                         |
 _______/                  |-----   X cm   ----|                  \________
 
-*///------------------------------------------------------------------------------
+*///----------------------------------------------------------------------------
 #include <TimeLib.h>  //Manage Real Time CLock
 #include <Wire.h>     //I2C communication
 #include "SdFat.h"    //Access SD Cards
