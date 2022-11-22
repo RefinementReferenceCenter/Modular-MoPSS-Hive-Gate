@@ -60,7 +60,6 @@ const int errorLED = 32;
 const int statusLED = 31;
 const int buttons = A13;
 
-
 //use volatile if interrupt based
 volatile uint8_t sensor1_triggered = 0;     //IR 1 door 1
 volatile uint8_t sensor2_triggered = 0;     //IR 2 door 2
@@ -128,8 +127,10 @@ uint8_t door1_IR_state[7]; //0 IR_top, IR_upper, IR_middle, IR_lower, IR_bottom,
 uint8_t door2_IR_state[7];
 
 //RFID
-const uint8_t reader1 = 0x09;     //I2C address RFID module 1
-const uint8_t reader2 = 0x08;     //I2C address RFID module 2
+const uint8_t reader1 = 0x08;     //I2C address RFID module 1
+const uint8_t reader2 = 0x09;     //I2C address RFID module 2
+
+uint32_t reader_freq;             //RFID readers resonant frequency
 
 unsigned long RFIDtime;           //used to measure time before switching to next antenna
 uint8_t RFIDtoggle = 0;           //flag used to switch to next antenna
@@ -278,8 +279,10 @@ const uint32_t warn_time = 60*60*24*1000;
 //##############################################################################
 void setup(){
   //----- DEBUGGING ------------------------------------------------------------
-  //pinMode(5,OUTPUT); //to allow port toggle for timing purposes D5 PA15
   
+  //Startup
+  //delay(1000); //wait for modules to boot up
+
   //----- communication --------------------------------------------------------
   //start Serial communication
   Serial.begin(115200);
@@ -302,9 +305,40 @@ void setup(){
 
   //----- RFID readers ---------------------------------------------------------
   OLEDprint(1,0,0,1,"Setup RFID readers...");
-  //disable RFID readers and wait until they acknowledge
-  //disableReader(reader1);
-  //disableReader(reader2);
+
+  while(1){
+    uint32_t tempfreq;
+
+    //Serial.println("set mode");
+    //disableReader(reader1); //turn off antennas of both readers to prevent interference
+    //disableReader(reader2);
+
+    setReaderMode(reader1,3);
+    
+    //Serial.println("measure");
+    //makeFreqMeasurement(reader1);
+    delay(1500);
+    //confirm();
+    //delay(200);
+    //Serial.println("get frequency");
+    tempfreq = fetchResFreq(reader1);
+    //Serial.println(tempfreq);
+    delay(1500);
+    tempfreq = fetchResFreq(reader1);
+
+    delay(500);
+    setReaderMode(reader1,3);
+
+    // Serial.println("get resfreq2");
+    // makeFreqMeasurement(reader2);
+    // delay(1500);
+    // tempfreq = fetchResFreq(reader2);
+    // Serial.println(tempfreq);
+    
+    //confirm();
+    //delay(200);
+    delay(3000);
+  }
   OLEDprint(2,0,0,1,"-Done");
 
   //----- Sensors --------------------------------------------------------------
@@ -1088,7 +1122,7 @@ void loop(){
   }
   
   //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-	//write Data to log files ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+	//write Data to log files ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 	//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
   
 	//log sensor/motor events
@@ -1218,24 +1252,22 @@ uint16_t getCountryCode(uint8_t in[6]){
   return countrycode;
 }
 
-//enable one reader, wait for cofirmation from reader
-void enableReader(byte reader){
+//enable one reader, wait for confirmation from reader
+void enableReader(uint8_t reader){
   uint8_t send_status = 1;
   while(send_status != 0){
-    //enable reader
     Wire.beginTransmission(reader);
-    Wire.write(1);
+    Wire.write(1); //enable reader
     send_status = Wire.endTransmission();
   }
 }
 
-//disable one reader, wait for cofirmation from reader
+//disable one reader, wait for confirmation from reader
 void disableReader(byte reader){
   uint8_t send_status = 1;
   while(send_status != 0){
-    //disable reader
     Wire.beginTransmission(reader);
-    Wire.write(0);
+    Wire.write(0); //disable reader
     send_status = Wire.endTransmission();
   }
 }
@@ -1251,6 +1283,56 @@ void switchReaders(byte readerON, byte readerOFF){
   Wire.beginTransmission(readerOFF);
   Wire.write(0);
   Wire.endTransmission();
+}
+
+//sets mode of the RFID reader 2 = RFID mode (retun tags), 3 = measure mode (return resonant frequency)
+void setReaderMode(uint8_t reader,uint8_t mode){
+  uint8_t send_status = 1;
+  while(send_status != 0){
+    Wire.beginTransmission(reader);
+    Wire.write(mode);
+    send_status = Wire.endTransmission();
+  }
+}
+
+//start a frequency measurement at the reader
+void makeFreqMeasurement(uint8_t reader){
+  //set mode to measure frequency
+  uint8_t send_status = 1;
+  while(send_status != 0){
+    Wire.beginTransmission(reader);
+    Wire.write(3);
+    send_status = Wire.endTransmission();
+  }
+}
+
+//Query reader for additional information
+uint32_t fetchResFreq(uint8_t reader){
+  //fetch frequency
+  uint32_t resfreq = 0;
+  uint8_t in[4];
+  Wire.requestFrom(reader,4,1); //request frequency
+  uint8_t n = 0;
+  while(Wire.available()){
+   in[n] = Wire.read();
+   n++;
+  }
+
+  //copy from array to 32bit variable
+  resfreq |= (in[3] << 24);
+  resfreq |= (in[2] << 16);
+  resfreq |= (in[1] <<  8);
+  resfreq |= (in[0] <<  0);
+
+  // //set RFID mode
+  // uint8_t send_status = 1;
+  // while(send_status != 0){
+  //   Wire.beginTransmission(reader);
+  //   Wire.write(2);
+  //   send_status = Wire.endTransmission();
+  // }  
+
+  return resfreq;
 }
 
 //fetch tag data from reader
