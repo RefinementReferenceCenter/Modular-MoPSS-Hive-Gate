@@ -1,6 +1,4 @@
-# Modular-MoPSS-Hive-Gate
-ModMoPSS Main Controller Unit
-
+# Modular MoPSS Main Controller Unit
 
 This is the code for the main controller unit which controls the high level behavior of all Modular MoPSS modules.
 
