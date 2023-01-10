@@ -9,3 +9,7 @@ This is a work in progress and functionality is in the progress of being fine-tu
 The Modular Mouse Position System is an open source behavioral experimentation platform for mice.
 
 For further information don't hesitate to contact:
+
+
+See also:
+https://github.com/RefinementReferenceCenter/Modular-MoPSS-Hardware
