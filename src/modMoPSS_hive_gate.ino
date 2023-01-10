@@ -50,7 +50,7 @@ const char SOFTWARE_REV[] = "v1.0";
 const uint8_t reader1 = 0x08;     //I2C address RFID module 1
 const uint8_t reader2 = 0x09;     //I2C address RFID module 2
 // const uint8_t rfid_address[] = {0x08,0x09};
-// const uint8_t HCrfid = 0;
+// const uint8_t HCrfid = 0;      //Index
 // const uint8_t TCrfid = 1;
 
 //const uint8_t door1 = 0x10;       //I2C address door module 1
@@ -96,7 +96,7 @@ uint8_t IR34_cbuffer_sum = 0;
 //uint8_t IR4_cbuffer_sum_short = 0
 uint8_t IR_middle_csum = 0; //contains the sum of the coincidence sums of IR3 IR4
 uint8_t sb = 0;                    //sensor buffer counter
-uint32_t IRsensor_time;       //time when IR sensors 1,2,3 were last checked
+uint32_t IRsensor_time;       //time when IR sensors 1,2,3,4 were last checked
 
 //LEDs
 const int errorLED = 32;
@@ -367,7 +367,7 @@ void setup(){
   //write current version to SD and some other startup/system related information
   dataFile.println("");
   dataFile.print("# Modular MoPSS Hive version: ");
-  dataFile.println("not yet implemented");
+  dataFile.println(SOFTWARE_REV);
 
   dataFile.print("# Door Module 1 version: ");
   dataFile.println("not yet implemented");
@@ -405,10 +405,10 @@ void setup(){
 
   dataFile.flush();
 
-  //and for backup
+  //and for backup SD
   dataFileBackup.println("");
   dataFileBackup.print("# Modular MoPSS Hive version: ");
-  dataFileBackup.println("not yet implemented");
+  dataFileBackup.println(SOFTWARE_REV);
 
   dataFileBackup.print("# Door Module 1 version: ");
   dataFileBackup.println("not yet implemented");
