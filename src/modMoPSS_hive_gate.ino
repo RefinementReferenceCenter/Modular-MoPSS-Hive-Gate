@@ -53,9 +53,12 @@ const uint8_t reader2 = 0x09;     //I2C address RFID module 2
 // const uint8_t HCrfid = 0;      //Index
 // const uint8_t TCrfid = 1;
 
-//const uint8_t door1 = 0x10;       //I2C address door module 1
-//const uint8_t door2 = 0x11;       //I2C address door module 2
-const uint8_t door_address[] = {0x10,0x11};         //addresses of all door modules
+//0x10 - gate door module
+//0x11 - turntable
+const uint8_t door1 = 0x10;
+const uint8_t turntable1 = 0x11;
+const uint8_t stepper_address[] = {0x10,0x11}; //addresses of all stepper modules
+
 const uint8_t oledDisplay = 0x78; //I2C address oled display
 
 //Buttons
@@ -95,8 +98,8 @@ uint8_t IR34_cbuffer_sum = 0;
 //uint8_t IR3_cbuffer_sum_short = 0;
 //uint8_t IR4_cbuffer_sum_short = 0
 uint8_t IR_middle_csum = 0; //contains the sum of the coincidence sums of IR3 IR4
-uint8_t sb = 0;                    //sensor buffer counter
-uint32_t IRsensor_time;       //time when IR sensors 1,2,3,4 were last checked
+uint8_t sb = 0;             //sensor buffer counter
+uint32_t IRsensor_time;     //time when IR sensors 1,2,3,4 were last checked
 
 //LEDs
 const int errorLED = 32;
@@ -117,33 +120,31 @@ U8G2_SSD1306_128X64_NONAME_F_HW_I2C oled(U8G2_R0,U8X8_PIN_NONE,23,22); //def,res
 uint32_t displaytime = 0;         //stores millis to time display refresh
 uint8_t displayon = 1;            //flag to en/disable display
 
-//Door Modules
-const uint8_t door_modules = sizeof(door_address);  //number of door modules
-uint8_t door_moving[door_modules];      //moving
-uint8_t door_open[door_modules];        //open or close
-uint32_t door_poll_time[door_modules];  //time door module was last polled for status
-uint16_t door_speed[door_modules];      //speed in us delay between steps
-uint16_t door_stays_open_min;           //minimum time a door will stay open for mouse to exit towards HC/TC
-uint32_t door_stop_time[door_modules];  //time when a change in the tm state last happened. Used to track delays that should happen between different stages
-uint32_t door_move_time[door_modules];  //time the door has started moving
-uint8_t tm_state;                       //transition management state
-uint8_t tm_state_restart = 0x1A;        //transition management restart state after failsafe
-uint8_t doublemouseflag;
+//Stepper Modules
+uint8_t door_moving[2];           //moving
+uint8_t door_open[2];             //open or close
+uint32_t door_poll_time;          //time door module was last polled for status
+uint16_t door_speed[2];           //speed in us delay between steps
+uint16_t door_stays_open_min;     //minimum time a door will stay open for mouse to exit towards HC/TC
+uint32_t door_stop_time[2];       //time when a change in the tm state last happened. Used to track delays that should happen between different stages
+uint32_t door_move_time[2];       //time the door has started moving
+uint8_t tm_state;                 //transition management state
+uint8_t tm_state_restart = 0x1A;  //transition management restart state after failsafe
+uint8_t doublemouseflag;          //
 
-//human readable door names must be in order of the addresses, 0 being first door module, 1 second door module and so forth
+//uint8_t turntable_moving;  //placeholder for turntable
+
+//human readable door names
 const uint8_t HCdoor = 0;
 const uint8_t TCdoor = 1;
 //human readable names for door control
 const uint8_t top = 0;
-const uint8_t upper = 1;
-const uint8_t middle = 2;
-const uint8_t lower = 3;
-const uint8_t bottom = 4;
+const uint8_t bottom = 1;
 const uint8_t up = 0;
 const uint8_t down = 1;
 
-uint8_t door1_IR_state[7];        //0 IR_top, IR_upper, IR_middle, IR_lower, IR_bottom, IR_barrier_rx, 6 IR_barrier_tx
-uint8_t door2_IR_state[7];
+uint8_t door1_IR_state[7];        //busy, tx1, tx2, rx1, rx2, top, bottom
+uint8_t door2_IR_state[7];        //busy, tx1, tx2, rx1, rx2, top, bottom
 
 //RFID
 uint32_t RFIDtime;           //used to measure time before switching to next antenna
@@ -314,8 +315,8 @@ void setup(){
   //----- Doors ----------------------------------------------------------------
   OLEDprint(3,0,0,1,"Setup Doors...");
   //complete movement up and down
-  //while(getDoorStatus(door1) || getDoorStatus(door2)) delay(250); //while busy wait for move to finish
-  
+  while(getDoorStatus(stepper_address[0])) delay(250);
+    
   
   OLEDprint(4,0,0,1,"-Done");
   delay(1000); //small delay before clearing display in next step
@@ -1407,14 +1408,16 @@ String createRFIDDataString(byte currenttag[], byte lasttag[], byte currenttag_p
 
 //Doors ------------------------------------------------------------------------
 uint8_t getDoorStatus(uint8_t door){
-  uint8_t address = door_address[door];
+  //uint8_t address = stepper_address[door];
+  uint8_t address = door;
   //request tag-data from reader
   uint8_t doorStatus[2];
   Wire.requestFrom(address,2,1); //address, quantity ~574uS 6 bytes, bus release
   uint8_t n = 0;
   while(Wire.available()){
     doorStatus[n] = Wire.read();
-    n++;}
+    n++;
+  }
 
   //0 IR_top, IR_upper, IR_middle, IR_lower, IR_bottom, IR_barrier_rx, 6 IR_barrier_tx
   door1_IR_state[0] = (doorStatus[0] >> 0) & 0x01;
@@ -1426,18 +1429,34 @@ uint8_t getDoorStatus(uint8_t door){
   door1_IR_state[6] = (doorStatus[0] >> 6) & 0x01;
 //  door1_IR_state[7] = (doorStatus[0] >> 7) & 0x01; //unused at the moment
 
+  door2_IR_state[0] = (doorStatus[1] >> 0) & 0x01;
+  door2_IR_state[1] = (doorStatus[1] >> 1) & 0x01;
+  door2_IR_state[2] = (doorStatus[1] >> 2) & 0x01;
+  door2_IR_state[3] = (doorStatus[1] >> 3) & 0x01;
+  door2_IR_state[4] = (doorStatus[1] >> 4) & 0x01;
+  door2_IR_state[5] = (doorStatus[1] >> 5) & 0x01;
+  door2_IR_state[6] = (doorStatus[1] >> 6) & 0x01;
+//  door2_IR_state[7] = (doorStatus[1] >> 7) & 0x01; //unused at the moment
+
   //update time door has stopped moving
+  if(!(doorStatus[0] & 0x01)){
+    door_stop_time[door] = millis();
+    door_moving[door] = 0;
+  }
+
   if(!(doorStatus[1] & 0x01)){
     door_stop_time[door] = millis();
-    door_moving[door] = 0;}
+    door_moving[door] = 0;
+  }
 
-  return doorStatus[1] & 0x01;} //busy flag
+  return ((doorStatus[0] & 0x01) << 1) | (doorStatus[1] & 0x01) ;  //busy flag
+}
 
 //------------------------------------------------------------------------------
 //move command is sent to door, which can be queried if it is finished.
 //moving down can be interrupted, moving up not.
 void moveDoor(uint8_t door, uint8_t direction, uint8_t target){
-  uint8_t address = door_address[door];
+  uint8_t address = stepper_address[door];
   uint16_t pulsetime = door_speed[door];
 
   //check if door is not already at target or moving towards target
@@ -1479,7 +1498,7 @@ void moveDoor(uint8_t door, uint8_t direction, uint8_t target){
 //------------------------------------------------------------------------------
 //used only in emergencies when it can't be guaranteed that the door module will aknowledge receive
 void moveDoorNoConfirm(uint8_t door, uint8_t direction, uint8_t target){
-  uint8_t address = door_address[door];
+  uint8_t address = stepper_address[door];
   uint16_t pulsetime = door_speed[door];
 
   uint8_t sendbuffer[7] = {0,0,0,0,0,0,0};
