@@ -55,7 +55,7 @@ const uint8_t reader2 = 0x09;     //I2C address RFID module 2
 
 //0x10 - gate door module
 //0x11 - turntable
-const uint8_t door1 = 0x10;
+const uint8_t doorMod1 = 0x10;
 const uint8_t turntable1 = 0x11;
 const uint8_t stepper_address[] = {0x10,0x11}; //addresses of all stepper modules
 
@@ -105,7 +105,7 @@ uint32_t IRsensor_time;     //time when IR sensors 1,2,3,4 were last checked
 const int errorLED = 32;
 const int statusLED = 31;
 
-//SD cards
+//SD cardsModules
 #define SD_FAT_TYPE 3
 #define SPI_CLOCK SD_SCK_MHZ(16)
 const uint8_t SDcs = 10;    //Chip Select External SD
@@ -123,7 +123,7 @@ uint8_t displayon = 1;            //flag to en/disable display
 //Stepper Modules
 uint8_t door_moving[2];           //moving
 uint8_t door_open[2];             //open or close
-uint32_t door_poll_time;          //time door module was last polled for status
+uint32_t door_poll_time[2];       //time door module was last polled for status
 uint16_t door_speed[2];           //speed in us delay between steps
 uint16_t door_stays_open_min;     //minimum time a door will stay open for mouse to exit towards HC/TC
 uint32_t door_stop_time[2];       //time when a change in the tm state last happened. Used to track delays that should happen between different stages
@@ -143,8 +143,8 @@ const uint8_t bottom = 1;
 const uint8_t up = 0;
 const uint8_t down = 1;
 
-uint8_t door1_IR_state[7];        //busy, tx1, tx2, rx1, rx2, top, bottom
-uint8_t door2_IR_state[7];        //busy, tx1, tx2, rx1, rx2, top, bottom
+uint8_t door1_state[7];        //busy, tx1, tx2, rx1, rx2, top, bottom
+uint8_t door2_state[7];        //busy, tx1, tx2, rx1, rx2, top, bottom
 
 //RFID
 uint32_t RFIDtime;           //used to measure time before switching to next antenna
@@ -204,7 +204,7 @@ uint32_t oledt2 = 0;
 
 //if set to 1, the MoPSS will wait until a serial connection via USB is established
 //before continuing. Also prints what is written to uSD to Serial as well.
-const uint8_t is_testing = 0;
+const uint8_t is_testing = 1;
 
 //write additional information to SD card
 //debug = 0 includes door movements, RFID tags
@@ -216,7 +216,7 @@ const uint8_t debug = 1;
 //1: Both doors always open
 //2: not used
 //3: Transition management enabled, transition delay option
-uint8_t habituation_phase = 1;
+uint8_t habituation_phase = 3;
 
 //time mouse is kept in transition (inside gate) with both doors closed (ms)
 uint16_t transition_delay = 3000; //ms
@@ -260,13 +260,23 @@ void setup(){
   pinMode(fan1,OUTPUT);
   pinMode(fan2,OUTPUT);
 
+  //----- Sensors --------------------------------------------------------------
+  pinMode(IR1[0],INPUT);   //setup input mode for pins
+  pinMode(IR1[1],INPUT);
+  pinMode(IR2[0],INPUT);
+  pinMode(IR2[1],INPUT);
+  pinMode(IR3[0],INPUT);
+  pinMode(IR3[1],INPUT);
+  pinMode(IR4[0],INPUT);
+  pinMode(IR4[1],INPUT);
+
+  //----- Real Time Clock ------------------------------------------------------
+  setSyncProvider(getTeensy3Time);
+
   //----- Display --------------------------------------------------------------
   oled.setI2CAddress(oledDisplay);
   oled.begin();
   oled.setFont(u8g2_font_6x10_mf); //set font w5 h10
-
-  //----- Real Time Clock ------------------------------------------------------
-  setSyncProvider(getTeensy3Time);
 
   //----- RFID readers ---------------------------------------------------------
   //measure resonant frequency and confirm/repeat on detune
@@ -300,26 +310,7 @@ void setup(){
       RFIDmodulestate = 1;
     }
   }
-
-  //----- Sensors --------------------------------------------------------------
-  //setup input mode for pins (redundant, for clarity)
-  pinMode(IR1[0],INPUT);
-  pinMode(IR1[1],INPUT);
-  pinMode(IR2[0],INPUT);
-  pinMode(IR2[1],INPUT);
-  pinMode(IR3[0],INPUT);
-  pinMode(IR3[1],INPUT);
-  pinMode(IR4[0],INPUT);
-  pinMode(IR4[1],INPUT);
-
-  //----- Doors ----------------------------------------------------------------
-  OLEDprint(3,0,0,1,"Setup Doors...");
-  //complete movement up and down
-  while(getDoorStatus(stepper_address[0])) delay(250);
-    
-  
-  OLEDprint(4,0,0,1,"-Done");
-  delay(1000); //small delay before clearing display in next step
+  delay(1000); //wait a bit to allow human reading
   
   //----- Setup SD Card --------------------------------------------------------
   //Stop program if uSDs are not detected/faulty (needs to be FAT/FAT32/exFAT format)
@@ -339,7 +330,6 @@ void setup(){
   else{
     Serial.println("External SD card initialized successfully!");
     OLEDprint(1,13,0,1,"OK!");
-    //OLEDprint(1,0,0,1,"-setup uSD: Success!");
   }
 
   //SD card internal (Backup)
@@ -355,6 +345,7 @@ void setup(){
     Serial.println("Internal SD card initialized successfully!");
     OLEDprint(2,13,0,1,"OK!");
   }
+  delay(1000);
 
   //----- Setup log file, and write initial configuration ----------------------
   //open file, or create if empty
@@ -364,15 +355,12 @@ void setup(){
   //get experiment start time
   starttime = now();
 
-  //TODO: add option to query RFID reader for version and resonant frequency
   //write current version to SD and some other startup/system related information
   dataFile.println("");
   dataFile.print("# Modular MoPSS Hive version: ");
   dataFile.println(SOFTWARE_REV);
 
   dataFile.print("# Door Module 1 version: ");
-  dataFile.println("not yet implemented");
-  dataFile.print("# Door Module 2 version: ");
   dataFile.println("not yet implemented");
 
   dataFile.print("# RFID Module 1 version: ");
@@ -413,8 +401,6 @@ void setup(){
 
   dataFileBackup.print("# Door Module 1 version: ");
   dataFileBackup.println("not yet implemented");
-  dataFileBackup.print("# Door Module 2 version: ");
-  dataFileBackup.println("not yet implemented");
 
   dataFileBackup.print("# RFID Module 1 version: ");
   dataFileBackup.println("not yet implemented");
@@ -447,43 +433,51 @@ void setup(){
 
   dataFileBackup.flush();
   
-  //---- setup experiment variables --------------------------------------------
+  //----- Doors ----------------------------------------------------------------
+  Serial.println("Door Setup");
+  OLEDprint(0,0,1,1,">>> Module Setup <<<");
+  OLEDprint(1,0,0,1,"Setup Doors...");
+  //wait for calibration to finish
+  while(getDoorModuleStatus(doorMod1)) delay(250);
+  
+  OLEDprint(2,0,0,1,"-Done");
+  delay(1000); //small delay before clearing display in next step
+  
+  //---- setup experiment ------------------------------------------------------
 
-  // //Move both doors up for habituation phase 1
-  // if(habituation_phase == 1){
-  //   moveDoor(HCdoor,up,top); //open HCdoor
-  //   moveDoor(TCdoor,up,top); //open TCdoor
-  //   while(door_moving[HCdoor] || door_moving[TCdoor]){
-  //      delay(250); //while busy wait for move to finish
-  //      door_moving[HCdoor] = getDoorStatus(HCdoor);
-  //      door_moving[TCdoor] = getDoorStatus(TCdoor);}
-  //   door_open[HCdoor] = 1;
-  //   door_open[TCdoor] = 1;}
-  // //both doors move simultaneously
-  // if(habituation_phase == 2){
-  //   }
-  // //transitionmanagement
-  // if(habituation_phase == 3){
-  //   //Serial.println(String("DoorState:")+String(door_open[HCdoor])+String(door_open[TCdoor]));
-  //   //Serial.println(String("DoorMove:")+String(door_moving[HCdoor])+String(door_moving[TCdoor]));
+  //Move both doors up for habituation phase 1
+  if(habituation_phase == 1){
+    moveDoor(doorMod1,HCdoor,up); //open HCdoor
+    moveDoor(doorMod1,TCdoor,up); //open TCdoor
+    while(getDoorModuleStatus(doorMod1)) delay(250); //while busy wait for move to finish
+    door_open[HCdoor] = 1;
+    door_open[TCdoor] = 1;
+  }
+  //both doors move simultaneously
+  if(habituation_phase == 2){
+    moveDoor(doorMod1,HCdoor,down);
+    delay(1000);
+    moveDoor(doorMod1,TCdoor,down);
+  }
+  //transitionmanagement
+  if(habituation_phase == 3){
+    moveDoor(doorMod1,HCdoor,up); //open HCdoor
+    delay(1000);
+    moveDoor(doorMod1,TCdoor,up); //open TCdoor
+    while(getDoorModuleStatus(doorMod1)) delay(250); //while busy wait for move to finish
+    door_moving[HCdoor] = 0;
+    door_moving[TCdoor] = 0;
+    door_open[HCdoor] = 1;
+    door_open[TCdoor] = 1;
 
-  //   moveDoor(HCdoor,up,top); //open HCdoor
-  //   moveDoor(TCdoor,up,top); //open TCdoor
-  //   while(door_moving[HCdoor] || door_moving[TCdoor]){
-  //      delay(250); //while busy wait for move to finish
-  //      door_moving[HCdoor] = getDoorStatus(HCdoor);
-  //      door_moving[TCdoor] = getDoorStatus(TCdoor);}
-  //   door_open[HCdoor] = 1;
-  //   door_open[TCdoor] = 1;
+    moveDoor(doorMod1,TCdoor,down); //close TCdoor
+    while(getDoorModuleStatus(doorMod1)) delay(250);
+    door_moving[HCdoor] = 0;
+    door_moving[TCdoor] = 0;
+    door_open[TCdoor] = 0;
 
-  //   moveDoor(TCdoor,down,bottom); //close TCdoor
-  //   while(door_moving[HCdoor] || door_moving[TCdoor]){
-  //     delay(250); //while busy wait for move to finish
-  //     door_moving[HCdoor] = getDoorStatus(HCdoor);
-  //     door_moving[TCdoor] = getDoorStatus(TCdoor);}
-  //   door_open[TCdoor] = 0;
-
-  //   tm_state = 0x1A;}  //start in state 1A
+    tm_state = 0x1A;  //start in state 1A
+  }
 } //end of setup
 
 //##############################################################################
@@ -748,21 +742,18 @@ void loop(){
     sb++;
     if(sb >= buffer_reads) sb = 0;
 
+    // Serial.print(IR1_cbuffer_sum);
+    // Serial.print("|");
+    // Serial.print(IR2_cbuffer_sum);
+    // Serial.print("|");
+    // Serial.print(IR3_cbuffer_sum);
+    // Serial.print("|");
+    // Serial.print(IR4_cbuffer_sum);
+    // Serial.print("|");
+    // Serial.print(IR34_cbuffer_sum);
+    // Serial.print("|");
+    // Serial.println(IR_middle_csum);
 
-    Serial.print(IR1_cbuffer_sum);
-    Serial.print("|");
-    Serial.print(IR2_cbuffer_sum);
-    Serial.print("|");
-    Serial.print(IR3_cbuffer_sum);
-    Serial.print("|");
-    Serial.print(IR4_cbuffer_sum);
-    Serial.print("|");
-    Serial.print(IR34_cbuffer_sum);
-    Serial.print("|");
-    Serial.println(IR_middle_csum);
-
-
-    
     //debug only, print buffer (all)
     // if((IR1_cbuffer_sum + IR2_cbuffer_sum + IR3_cbuffer_sum + IR4_cbuffer_sum) > 0){
     //   if((debug>=1)&&(sb%25==0)){
@@ -775,19 +766,35 @@ void loop(){
   //----------------------------------------------------------------------------
   //read door status on demand -------------------------------------------------
   //----------------------------------------------------------------------------
-  for(uint8_t door = 0;door < door_modules;door++){
-    if(door_moving[door] && (millis() - door_poll_time[door] >= 200)){
-      door_poll_time[door] = millis();
-      door_moving[door] = getDoorStatus(door);
+  //if one of the two doors is moving and time since last check is x ms, check again
+  if(door_moving[HCdoor] && (millis() - door_poll_time[HCdoor] >= 200)){
+    door_poll_time[HCdoor] = millis();
+    
+    door_moving[HCdoor] = getDoorModuleStatus(doorMod1) & 0b01;
+    
+    if(!door_moving[HCdoor]){ //if it stopped moving update status
+        door_open[HCdoor] = !door_open[HCdoor];
+      if(door_open[HCdoor]){ //door has finished movement and is now OPEN
+        SENSORDataString = createSENSORDataString("D1","opened",SENSORDataString);
+      }
+      else{ //door has finished movement and is now CLOSED
+        SENSORDataString = createSENSORDataString("D1","closed",SENSORDataString);
+      }
+    }
+  }
 
-      if(!door_moving[door]){
-        door_open[door] = !door_open[door];
-        if(door_open[door]){ //door has finished movement and is now OPEN
-          SENSORDataString = createSENSORDataString("D"+String(door+1),"opened",SENSORDataString);
-        }
-        else{ //door has finished movement and is now CLOSED
-          SENSORDataString = createSENSORDataString("D"+String(door+1),"closed",SENSORDataString);
-        }
+  if(door_moving[TCdoor] && (millis() - door_poll_time[TCdoor] >= 200)){
+    door_poll_time[TCdoor] = millis();
+
+    door_moving[TCdoor] = getDoorModuleStatus(doorMod1) & 0b10;
+
+    if(!door_moving[TCdoor]){ //if it stopped moving update status
+      door_open[TCdoor] = !door_open[TCdoor];
+      if(door_open[TCdoor]){ //door has finished movement and is now OPEN
+        SENSORDataString = createSENSORDataString("D2","opened",SENSORDataString);
+      }
+      else{ //door has finished movement and is now CLOSED
+        SENSORDataString = createSENSORDataString("D2","closed",SENSORDataString);
       }
     }
   }
@@ -816,7 +823,7 @@ void loop(){
   //----------------------------------------------------------------------------
   //door management for phase 2 ------------------------------------------------
   //----------------------------------------------------------------------------
-  if(habituation_phase == 2){ //both doors open simultaneously (not used)
+  if(habituation_phase == 2){ //both doors open simultaneously
   } //end habituation phase 2
 
   //----------------------------------------------------------------------------
@@ -835,7 +842,7 @@ void loop(){
       }
       //state 0x1A move towards tc
       if((tm_state == 0x1A) && IR4_cbuffer_sum){
-        moveDoor(HCdoor,down,bottom); //close door
+        moveDoor(doorMod1,HCdoor,down); //close door
         SENSORDataString = createSENSORDataString("D1", "closing", SENSORDataString);
         tm_state = 0x2A;
         SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
@@ -854,7 +861,7 @@ void loop(){
       if(tm_state == 0x2A){
         if(millis() - door_stop_time[HCdoor] >= transition_delay){
           if(!IR_middle_csum){ //no mouse in middle (formerly individual IRs, not coincidence)
-            moveDoor(HCdoor,up,top);
+            moveDoor(doorMod1,HCdoor,up);
             SENSORDataString = createSENSORDataString("D1", "opening", SENSORDataString);
             tm_state = 0x1A;
             SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
@@ -868,7 +875,7 @@ void loop(){
             if(doublemouseflag) go = 0; //treat double mouse same as multimice with different restart state
             //if(!mouse_ident) go = 0;
             if(go){
-              moveDoor(TCdoor,up,top); //open door
+              moveDoor(doorMod1,TCdoor,up); //open door
               SENSORDataString = createSENSORDataString("D2", "opening", SENSORDataString);
               tm_state = 0x3A;
               SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
@@ -891,14 +898,14 @@ void loop(){
           uint8_t go = 1;
           if(!IR_middle_csum) go = 0;
           if(go){
-            moveDoor(HCdoor,up,top); //open door
+            moveDoor(doorMod1,HCdoor,up); //open door
             SENSORDataString = createSENSORDataString("D1", "opening", SENSORDataString);
             tm_state = 0x1B;
             SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
             tc_occupied = 0;
             SENSORDataString = createSENSORDataString("TC","empty",SENSORDataString);} //testcage is no longer occupied
           else{
-            moveDoor(TCdoor,up,top); //open door
+            moveDoor(doorMod1,TCdoor,up); //open door
             SENSORDataString = createSENSORDataString("D2", "opening", SENSORDataString); //maximum logging
             tm_state = 0x3B;
             SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
@@ -910,7 +917,7 @@ void loop(){
     if(!door_moving[HCdoor] && !door_moving[TCdoor]){ //advance transitionmanagement only when doors are not moving
       //state 0x3B move towards hc
       if((tm_state == 0x3B) && IR3_cbuffer_sum){
-        moveDoor(TCdoor,down,bottom); //close door, state = 0x2B after door movement
+        moveDoor(doorMod1,TCdoor,down); //close door, state = 0x2B after door movement
         SENSORDataString = createSENSORDataString("D2", "closing", SENSORDataString); //maximum logging
         tm_state = 0x2B;
         SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
@@ -927,7 +934,7 @@ void loop(){
     //Failsaves ------------------------------------------------------------------
     //unified fail recovery state
     if(tm_state == 0xFA){ //quickly open HCdoor
-      moveDoor(HCdoor,up,top);
+      moveDoor(doorMod1,HCdoor,up);
       SENSORDataString = createSENSORDataString("D1", "opening FS", SENSORDataString);
       tm_state = 0xFB;
       SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
@@ -945,7 +952,7 @@ void loop(){
     }
 
     if(tm_state == 0xFC && !IR_middle_csum && !IR1_cbuffer_sum){ //if middle and front is empty, try closing HCdoor
-      moveDoor(HCdoor,down,bottom);
+      moveDoor(doorMod1,HCdoor,down);
       SENSORDataString = createSENSORDataString("D1", "closing FS", SENSORDataString);
       tm_state = 0xFD;
       SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
@@ -961,11 +968,11 @@ void loop(){
         SENSORDataString = createSENSORDataString("FAN","fan2 off",SENSORDataString);
         tm_state = tm_state_restart;
         if(tm_state == 0x1A){
-          moveDoor(HCdoor,up,top);
+          moveDoor(doorMod1,HCdoor,up);
           SENSORDataString = createSENSORDataString("D1", "opening FS", SENSORDataString);
         }
         if(tm_state == 0x3B){
-          moveDoor(TCdoor,up,top);
+          moveDoor(doorMod1,TCdoor,up);
           SENSORDataString = createSENSORDataString("D2", "opening FS", SENSORDataString);
           doublemouseflag = 0;
         }
@@ -1031,23 +1038,30 @@ void loop(){
       OLEDprint(0,11,0,0,nDate);
 
       //display info on door status and TC status
-      // OLEDprint(1,0,0,0,"D1:");
-      // if(door_open[HCdoor] && !door_moving[HCdoor]) OLEDprint(1,3,0,0,"Open");
-      // if(door_open[HCdoor] && door_moving[HCdoor]) OLEDprint(1,3,0,0,"Closing");
-      // if(!door_open[HCdoor] && !door_moving[HCdoor]) OLEDprint(1,3,0,0,"Closed");
-      // if(!door_open[HCdoor] && door_moving[HCdoor]) OLEDprint(1,3,0,0,"Opening");
+      OLEDprint(1,0,0,0,"D1:");
+      if(door_open[HCdoor] && !door_moving[HCdoor]) OLEDprint(1,3,0,0,"Open");
+      if(door_open[HCdoor] && door_moving[HCdoor]) OLEDprint(1,3,0,0,"Closing");
+      if(!door_open[HCdoor] && !door_moving[HCdoor]) OLEDprint(1,3,0,0,"Closed");
+      if(!door_open[HCdoor] && door_moving[HCdoor]) OLEDprint(1,3,0,0,"Opening");
 
-      // OLEDprint(1,10,0,0,"D2:");
-      // if(door_open[TCdoor] && !door_moving[TCdoor]) OLEDprint(1,13,0,0,"Open");
-      // if(door_open[TCdoor] && door_moving[TCdoor]) OLEDprint(1,13,0,0,"Closing");
-      // if(!door_open[TCdoor] && !door_moving[TCdoor]) OLEDprint(1,13,0,0,"Closed");
-      // if(!door_open[TCdoor] && door_moving[TCdoor]) OLEDprint(1,13,0,0,"Opening");
+      OLEDprint(1,10,0,0,"D2:");
+      if(door_open[TCdoor] && !door_moving[TCdoor]) OLEDprint(1,13,0,0,"Open");
+      if(door_open[TCdoor] && door_moving[TCdoor]) OLEDprint(1,13,0,0,"Closing");
+      if(!door_open[TCdoor] && !door_moving[TCdoor]) OLEDprint(1,13,0,0,"Closed");
+      if(!door_open[TCdoor] && door_moving[TCdoor]) OLEDprint(1,13,0,0,"Opening");
 
-      // OLEDprint(2,0,0,0,"TC occupied:");
-      // if(tc_occupied) OLEDprint(2,13,0,0,"Yes");
-      // else OLEDprint(2,13,0,0,"No");
+      OLEDprint(2,0,0,0,"TC occupied:");
+      if(tc_occupied) OLEDprint(2,13,0,0,"Yes");
+      else OLEDprint(2,13,0,0,"No");
 
       //print current IR barrier states
+      OLEDprint(3,0,0,0,"IR:");
+      OLEDprint(3,4,0,0,IR1_cbuffer_sum);
+      OLEDprint(3,7,0,0,IR2_cbuffer_sum);
+      OLEDprint(3,10,0,0,IR3_cbuffer_sum);
+      OLEDprint(3,13,0,0,IR4_cbuffer_sum);
+      OLEDprint(3,16,0,0,IR34_cbuffer_sum);
+
       // OLEDprint(3,0,0,0,"IR state:");
       // OLEDprint(3,10,0,0,digitalRead(sensor1));
       // OLEDprint(3,11,0,0,"|");
@@ -1287,19 +1301,19 @@ uint32_t fetchResFreq(uint8_t reader){
   
   //fetch measured frequency
   uint32_t resfreq = 0;
-  uint8_t in[4];
+  uint8_t rcv[4];
   Wire.requestFrom(reader,4,1); //request frequency
   uint8_t n = 0;
   while(Wire.available()){
-   in[n] = Wire.read();
+   rcv[n] = Wire.read();
    n++;
   }
 
   //assemble from array to 32bit variable
-  resfreq |= (in[3] << 24);
-  resfreq |= (in[2] << 16);
-  resfreq |= (in[1] <<  8);
-  resfreq |= (in[0] <<  0);
+  resfreq |= (rcv[3] << 24);
+  resfreq |= (rcv[2] << 16);
+  resfreq |= (rcv[1] <<  8);
+  resfreq |= (rcv[0] <<  0);
 
   //leave measure mode
   setReaderMode(reader,2);  //set to tag-transmitting mode
@@ -1407,56 +1421,55 @@ String createRFIDDataString(byte currenttag[], byte lasttag[], byte currenttag_p
 }
 
 //Doors ------------------------------------------------------------------------
-uint8_t getDoorStatus(uint8_t door){
-  //uint8_t address = stepper_address[door];
-  uint8_t address = door;
+uint8_t getDoorModuleStatus(uint8_t address){
   //request tag-data from reader
-  uint8_t doorStatus[2];
+  uint8_t rcv[2];
   Wire.requestFrom(address,2,1); //address, quantity ~574uS 6 bytes, bus release
   uint8_t n = 0;
   while(Wire.available()){
-    doorStatus[n] = Wire.read();
+    rcv[n] = Wire.read();
     n++;
   }
 
-  //0 IR_top, IR_upper, IR_middle, IR_lower, IR_bottom, IR_barrier_rx, 6 IR_barrier_tx
-  door1_IR_state[0] = (doorStatus[0] >> 0) & 0x01;
-  door1_IR_state[1] = (doorStatus[0] >> 1) & 0x01;
-  door1_IR_state[2] = (doorStatus[0] >> 2) & 0x01;
-  door1_IR_state[3] = (doorStatus[0] >> 3) & 0x01;
-  door1_IR_state[4] = (doorStatus[0] >> 4) & 0x01;
-  door1_IR_state[5] = (doorStatus[0] >> 5) & 0x01;
-  door1_IR_state[6] = (doorStatus[0] >> 6) & 0x01;
-//  door1_IR_state[7] = (doorStatus[0] >> 7) & 0x01; //unused at the moment
+  //busy flag, tx1, tx2, rx1, rx2 top, bottom
+  door1_state[0] = (rcv[0] >> 0) & 0x01;
+  door1_state[1] = (rcv[0] >> 1) & 0x01;
+  door1_state[2] = (rcv[0] >> 2) & 0x01;
+  door1_state[3] = (rcv[0] >> 3) & 0x01;
+  door1_state[4] = (rcv[0] >> 4) & 0x01;
+  door1_state[5] = (rcv[0] >> 5) & 0x01;
+  door1_state[6] = (rcv[0] >> 6) & 0x01;
+//  door1_state[7] = (rcv[0] >> 7) & 0x01; //unused at the moment
 
-  door2_IR_state[0] = (doorStatus[1] >> 0) & 0x01;
-  door2_IR_state[1] = (doorStatus[1] >> 1) & 0x01;
-  door2_IR_state[2] = (doorStatus[1] >> 2) & 0x01;
-  door2_IR_state[3] = (doorStatus[1] >> 3) & 0x01;
-  door2_IR_state[4] = (doorStatus[1] >> 4) & 0x01;
-  door2_IR_state[5] = (doorStatus[1] >> 5) & 0x01;
-  door2_IR_state[6] = (doorStatus[1] >> 6) & 0x01;
-//  door2_IR_state[7] = (doorStatus[1] >> 7) & 0x01; //unused at the moment
+  //busy flag, tx1, tx2, rx1, rx2 top, bottom
+  door2_state[0] = (rcv[1] >> 0) & 0x01;
+  door2_state[1] = (rcv[1] >> 1) & 0x01;
+  door2_state[2] = (rcv[1] >> 2) & 0x01;
+  door2_state[3] = (rcv[1] >> 3) & 0x01;
+  door2_state[4] = (rcv[1] >> 4) & 0x01;
+  door2_state[5] = (rcv[1] >> 5) & 0x01;
+  door2_state[6] = (rcv[1] >> 6) & 0x01;
+//  door2_state[7] = (rcv[1] >> 7) & 0x01; //unused at the moment
 
-  //update time door has stopped moving
-  if(!(doorStatus[0] & 0x01)){
-    door_stop_time[door] = millis();
-    door_moving[door] = 0;
+  //update time door has stopped moving (not yet elegant solution)
+  if(!door1_state[0]){
+    door_stop_time[HCdoor] = millis();
+    //door_moving[HCdoor] = 0;
   }
 
-  if(!(doorStatus[1] & 0x01)){
-    door_stop_time[door] = millis();
-    door_moving[door] = 0;
+  if(!door2_state[0]){
+    door_stop_time[TCdoor] = millis();
+    //door_moving[TCdoor] = 0;
   }
 
-  return ((doorStatus[0] & 0x01) << 1) | (doorStatus[1] & 0x01) ;  //busy flag
+  //returns busy flags of both doors, 0b00 none busy, 0b01 door1 busy, 0b10 door2 busy, 0b11 both busy
+  return (door2_state[0] << 1) | door1_state[0];  //busy flag
 }
 
 //------------------------------------------------------------------------------
 //move command is sent to door, which can be queried if it is finished.
 //moving down can be interrupted, moving up not.
-void moveDoor(uint8_t door, uint8_t direction, uint8_t target){
-  uint8_t address = stepper_address[door];
+void moveDoor(uint8_t address,uint8_t door,uint8_t direction){
   uint16_t pulsetime = door_speed[door];
 
   //check if door is not already at target or moving towards target
@@ -1475,9 +1488,9 @@ void moveDoor(uint8_t door, uint8_t direction, uint8_t target){
     uint8_t sendbuffer[7] = {0,0,0,0,0,0,0};
     sendbuffer[0] = 2;  //option for different move commands
     sendbuffer[1] = direction;
-    sendbuffer[2] = target;
-    sendbuffer[3] = pulsetime & 0xff;
-    sendbuffer[4] = (pulsetime >> 8) & 0xff;
+    sendbuffer[2] = pulsetime & 0xff;
+    sendbuffer[3] = (pulsetime >> 8) & 0xff;
+    sendbuffer[4] = door;
 
     uint8_t send_status = 1;
     while(send_status != 0){
@@ -1490,14 +1503,15 @@ void moveDoor(uint8_t door, uint8_t direction, uint8_t target){
 
     //set flag for moving and times for polling and checking movement duration
     door_moving[door] = 1; //set door status to moving
-    door_poll_time[door] = millis();
-    door_move_time[door] = door_poll_time[door];
+    door_poll_time[HCdoor] = millis();
+    door_poll_time[TCdoor] = millis();
+    door_move_time[door] = millis();
   }
 }
 
 //------------------------------------------------------------------------------
 //used only in emergencies when it can't be guaranteed that the door module will aknowledge receive
-void moveDoorNoConfirm(uint8_t door, uint8_t direction, uint8_t target){
+void moveDoorNoConfirm(uint8_t door, uint8_t direction){
   uint8_t address = stepper_address[door];
   uint16_t pulsetime = door_speed[door];
 
@@ -1505,10 +1519,9 @@ void moveDoorNoConfirm(uint8_t door, uint8_t direction, uint8_t target){
   sendbuffer[0] = 2;
 
   sendbuffer[1] = direction;
-  sendbuffer[2] = target;
 
-  sendbuffer[3] = pulsetime & 0xff;
-  sendbuffer[4] = (pulsetime >> 8) & 0xff;
+  sendbuffer[2] = pulsetime & 0xff;
+  sendbuffer[3] = (pulsetime >> 8) & 0xff;
 
   Wire.beginTransmission(address); //address
   for(uint8_t i = 0; i < 7; i++){
