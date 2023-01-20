@@ -216,7 +216,7 @@ const uint8_t debug = 1;
 //1: Both doors always open
 //2: not used
 //3: Transition management enabled, transition delay option
-uint8_t habituation_phase = 3;
+uint8_t habituation_phase = 2;
 
 //time mouse is kept in transition (inside gate) with both doors closed (ms)
 uint16_t transition_delay = 3000; //ms
@@ -456,13 +456,11 @@ void setup(){
   //both doors move simultaneously
   if(habituation_phase == 2){
     moveDoor(doorMod1,HCdoor,down);
-    delay(1000);
     moveDoor(doorMod1,TCdoor,down);
   }
   //transitionmanagement
   if(habituation_phase == 3){
     moveDoor(doorMod1,HCdoor,up); //open HCdoor
-    delay(1000);
     moveDoor(doorMod1,TCdoor,up); //open TCdoor
     while(getDoorModuleStatus(doorMod1)) delay(250); //while busy wait for move to finish
     door_moving[HCdoor] = 0;
@@ -824,6 +822,17 @@ void loop(){
   //door management for phase 2 ------------------------------------------------
   //----------------------------------------------------------------------------
   if(habituation_phase == 2){ //both doors open simultaneously
+    if(IR1_cbuffer_sum > 0)
+    {
+      moveDoor(doorMod1,HCdoor,up);
+      moveDoor(doorMod1,TCdoor,up);
+    }
+    else{
+      moveDoor(doorMod1,HCdoor,down);
+      moveDoor(doorMod1,TCdoor,down);
+    }
+
+
   } //end habituation phase 2
 
   //----------------------------------------------------------------------------
