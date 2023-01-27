@@ -1,16 +1,18 @@
 /*------------------------------------------------------------------------------
 - PJRC Teensy 4.1 (with ethernet) pin mapping - Hardware Revision v7.0
 
-D36,D37 - X1 dual-infrared lightbarrier connectors (S|S|GND|+12V)
-A14,A15 - X2
-A11,A10 - X3
-A16,A17 - X4
+- dual-infrared lightbarrier connectors (S|S|GND|+12V)
+D36,D37 - X1 infrared barrier 1
+A14,A15 - X2 infrared barrier 2
+A11,A10 - X3 infrared barrier 3
+A16,A17 - X4 infrared barrier 4
 A1,A0   - X5
 A6,A7   - X6
 A8,A9   - X7
 D3,D2   - X8
 
-D29 - J1  fan 1 - multi-purpose 3-pin connectors (+12V|GND|Signal)
+- multi-purpose 3-pin connectors (+12V|GND|Signal)
+D29 - J1  fan 1 
 D28 - J2  fan 2
 D33 - J3
 D9  - J4
@@ -21,7 +23,6 @@ D6  - J7
 D32 - ERR LED   Error LED, used for various error states
 D31 - STAT LED  Status LED, can be used to signal stuff
 A13 - B1,B2,B3  Input from the three buttons on the board
-
 
 --- Experimental Setup ---
 
@@ -49,16 +50,8 @@ const char SOFTWARE_REV[] = "v1.0";
 //I2C addresses
 const uint8_t reader1 = 0x08;     //I2C address RFID module 1
 const uint8_t reader2 = 0x09;     //I2C address RFID module 2
-// const uint8_t rfid_address[] = {0x08,0x09};
-// const uint8_t HCrfid = 0;      //Index
-// const uint8_t TCrfid = 1;
-
-//0x10 - gate door module
-//0x11 - turntable
 const uint8_t doorMod1 = 0x10;
-const uint8_t turntable1 = 0x11;
-const uint8_t stepper_address[] = {0x10,0x11}; //addresses of all stepper modules
-
+//const uint8_t turntable1 = 0x11;  //for future use
 const uint8_t oledDisplay = 0x78; //I2C address oled display
 
 //Buttons
@@ -66,12 +59,12 @@ const int buttons = A13;  //~1022 not pressed, ~1 left, ~323 middle, ~711 right
 
 //Fans
 const int fan1 = 29;        //fan1
-uint8_t fan1on = 0;         //fan1 state
 const int fan2 = 28;        //fan2
+uint8_t fan1on = 0;         //fan1 state
 uint8_t fan2on = 0;         //fan2 state
 uint8_t cleardoorblock = 0; //to separate between different conditions that require a fan
 
-//Sensors
+//IR Sensors
 const int IR1[2] = {36,37};
 const int IR2[2] = {A14,A15};
 const int IR3[2] = {A11,A10};
@@ -95,8 +88,6 @@ uint8_t IR2_cbuffer_sum = 0;
 uint8_t IR3_cbuffer_sum = 0;
 uint8_t IR4_cbuffer_sum = 0;
 uint8_t IR34_cbuffer_sum = 0;
-//uint8_t IR3_cbuffer_sum_short = 0;
-//uint8_t IR4_cbuffer_sum_short = 0
 uint8_t IR_middle_csum = 0; //contains the sum of the coincidence sums of IR3 IR4
 uint8_t sb = 0;             //sensor buffer counter
 uint32_t IRsensor_time;     //time when IR sensors 1,2,3,4 were last checked
@@ -130,8 +121,7 @@ uint32_t door_stop_time[2];       //time when a change in the tm state last happ
 uint32_t door_move_time[2];       //time the door has started moving
 uint8_t tm_state;                 //transition management state
 uint8_t tm_state_restart = 0x1A;  //transition management restart state after failsafe
-uint8_t doublemouseflag;          //
-
+uint8_t doublemouseflag;          //flag if a mouse is detected in the testcage, when it should be empty
 //uint8_t turntable_moving;  //placeholder for turntable
 
 //human readable door names
@@ -142,30 +132,29 @@ const uint8_t top = 0;
 const uint8_t bottom = 1;
 const uint8_t up = 0;
 const uint8_t down = 1;
-
+//busy if door is still moving and the state of all attached IR barriers
 uint8_t door1_state[7];        //busy, tx1, tx2, rx1, rx2, top, bottom
 uint8_t door2_state[7];        //busy, tx1, tx2, rx1, rx2, top, bottom
 
 //RFID
 uint32_t RFIDtime;           //used to measure time before switching to next antenna
-uint8_t RFIDtoggle = 0;           //flag used to switch to next antenna
+uint8_t RFIDtoggle = 0;      //flag used to switch to next antenna
 
-uint8_t tag[6] = {};              //global variable to store returned tag data (limitation of C to return arrays)
-uint8_t tag1_present = 0;         //flag that indicates if tag was present during read cycle
+uint8_t tag[6] = {};         //global variable to store returned tag data (limitation of C to return arrays)
+uint8_t tag1_present = 0;    //flag that indicates if tag was present during read cycle
 uint8_t tag2_present = 0;
-uint8_t reader1_cycle = 0;        //toggles flag if a read cycle has just happened (not automatically cleared)
+uint8_t reader1_cycle = 0;   //toggles flag if a read cycle has just happened (not automatically cleared)
 uint8_t reader2_cycle = 0;
-uint8_t currenttag1[6] = {};      //saves id of the tag that was read during the current read cycle
+uint8_t currenttag1[6] = {}; //saves id of the tag that was read during the current read cycle
 uint8_t currenttag2[6] = {};
-uint8_t lasttag1[6] = {};         //saves id of the tag that was read during the previous read cycle
+uint8_t lasttag1[6] = {};    //saves id of the tag that was read during the previous read cycle
 uint8_t lasttag2[6] = {};
 
-//TODO: test switching modes
 uint8_t RFIDmode = 1;           //select mode to operate in: 1-alternate, 2-reader1, 3-reader2
 uint8_t RFIDmode_firstrun = 1;  //to make sure the correct reader is turned on/off
 
 //Experiment variables
-uint8_t tc_occupied = 0;        //flag that tracks occupation of test cage
+uint8_t tc_occupied = 0;   //flag that tracks occupation of test cage
 uint32_t starttime;        //start of programm
 uint32_t rtccheck_time;    //time the rtc was checked last
 
@@ -186,44 +175,34 @@ const uint8_t mouse_library[mice][6] = {
   {0x91,0x64,0x7F,0x90,0x2E,0xE1}, //mouse 11 ro_sw 7857
   {0x41,0x73,0x7F,0x90,0x2E,0xE1}, //mouse 12 we_ro 1617
   {0xA1,0x82,0x42,0xDD,0x3E,0xF3}, //mouse 13 polymorphmaus
-  {0x0E,0x67,0xF7,0x90,0x2E,0xE1}  //mouse 14 bleistiftmaus
-};
-uint8_t mice_visits[mice][2];      //contains the number of tag reads at reader 1 and 2 during the last 24 hours
+  {0x0E,0x67,0xF7,0x90,0x2E,0xE1}};//mouse 14 bleistiftmaus
 
-uint8_t update_current_mouse1 = 1; //flag for updating current mouse at reader 1
-uint8_t update_current_mouse2 = 1; //flag for updating current mouse at reader 2
+uint8_t mice_visits[mice][2];      //contains the number of tag reads at reader 1 and 2 during the last 24 hours
 uint8_t current_mouse1 = 0;        //placeholder simple number for tag at reader 1
 uint8_t current_mouse2 = 0;        //placeholder simple number for tag at reader 2
-
-uint32_t oledt1 = 0;
-uint32_t oledt2 = 0;
 
 //##############################################################################
 //#####   U S E R   C O N F I G  ###############################################
 //##############################################################################
 
-//if set to 1, the MoPSS will wait until a serial connection via USB is established
-//before continuing. Also prints what is written to uSD to Serial as well.
+//if set to 1, the MoPSS prints what is written to uSD to Serial as well.
 const uint8_t is_testing = 1;
 
 //write additional information to SD card
 //debug = 0 includes door movements, RFID tags
-//debug >= 1 include regular status of the IR barriers
+//debug = 1 include regular status of the IR barriers
 const uint8_t debug = 1;
 
-//------------------------------------------------------------------------------
 //Habituation phase
 //1: Both doors always open
-//2: not used
 //3: Transition management enabled, transition delay option
-uint8_t habituation_phase = 2;
+uint8_t habituation_phase = 3;
 
 //time mouse is kept in transition (inside gate) with both doors closed (ms)
 uint16_t transition_delay = 3000; //ms
 
 //time until fan1 is turned on
 const uint16_t fan1delay = 30000; //ms door 1 open and until fan1 is turned on
-
 
 //##############################################################################
 //#####   S E T U P   ##########################################################
@@ -248,12 +227,6 @@ void setup(){
   
   //start I2C
   Wire.begin();
-  
-  //----- DEBUGGING ------------------------------------------------------------
-  // while(1){
-  //   Serial.println(analogRead(buttons));
-  //   delay(200);
-  // }
 
   //----- Buttons & Fans -------------------------------------------------------
   pinMode(buttons,INPUT);
@@ -261,7 +234,7 @@ void setup(){
   pinMode(fan2,OUTPUT);
 
   //----- Sensors --------------------------------------------------------------
-  pinMode(IR1[0],INPUT);   //setup input mode for pins
+  pinMode(IR1[0],INPUT);
   pinMode(IR1[1],INPUT);
   pinMode(IR2[0],INPUT);
   pinMode(IR2[1],INPUT);
@@ -278,24 +251,21 @@ void setup(){
   oled.begin();
   oled.setFont(u8g2_font_6x10_mf); //set font w5 h10
 
-  //----- RFID readers ---------------------------------------------------------
+  //----- Setup RFID readers ---------------------------------------------------
   //measure resonant frequency and confirm/repeat on detune
   uint8_t RFIDmodulestate = 0;
   int32_t reader1_freq = 0;
   int32_t reader2_freq = 0;
   while(RFIDmodulestate == 0){
-    OLEDprint(0,0,1,1,">>> Module Setup <<<");
-    OLEDprint(1,0,0,1,"Setup RFID readers...");
-    OLEDprint(2,0,0,1,"reader 1:");
-    OLEDprint(3,0,0,1,"reader 2:");
+    OLEDprint(0,0,1,1,">>> RFID Setup <<<");
+    OLEDprint(1,0,0,1,"reader 1:");
+    OLEDprint(2,0,0,1,"reader 2:");
     reader1_freq = fetchResFreq(reader1);
-    
     OLEDprintFraction(2,10,0,1,(float)reader1_freq/1000,3);
-    OLEDprint(2,17,0,1,"kHz");
-
+    OLEDprint(1,17,0,1,"kHz");
     reader2_freq = fetchResFreq(reader2);
-    OLEDprintFraction(3,10,0,1,(float)reader2_freq/1000,3);
-    OLEDprint(3,17,0,1,"kHz");
+    OLEDprintFraction(2,10,0,1,(float)reader2_freq/1000,3);
+    OLEDprint(2,17,0,1,"kHz");
 
     if((abs(reader1_freq - 134200) >= 1000) || (abs(reader2_freq - 134200) >= 1000)){
       OLEDprint(4,0,0,1,"Antenna detuned!");
@@ -310,19 +280,15 @@ void setup(){
       RFIDmodulestate = 1;
     }
   }
-  delay(1000); //wait a bit to allow human reading
   
   //----- Setup SD Card --------------------------------------------------------
   //Stop program if uSDs are not detected/faulty (needs to be FAT/FAT32/exFAT format)
-  Serial.println("----- SD-Card Setup -----");
   OLEDprint(0,0,1,1,">>>  uSD  Setup  <<<");
-  //see if the cards are present and can be initialized:
-  OLEDprint(1,0,0,1,"SD EXternal:");
+  OLEDprint(1,0,0,1,"SD EXternal:"); //see if the cards are present and can be initialized
   OLEDprint(2,0,0,1,"SD INternal:");
   
-  //SD card external (main, for collection)
+  //SD card external (main, for data collection)
   if(!SD.begin(SDcs)){
-    Serial.println("External Card failed, or not present!");
     OLEDprint(1,13,0,1,"FAIL!");
     OLEDprint(5,0,0,1,"PROGRAM STOPPED");
     criticalerror();
@@ -331,15 +297,11 @@ void setup(){
     Serial.println("External SD card initialized successfully!");
     OLEDprint(1,13,0,1,"OK!");
   }
-
   //SD card internal (Backup)
   if(!SDb.begin(SdioConfig(FIFO_SDIO))){ //internal SD Card
-    Serial.println("Internal Card failed, or not present!");
     OLEDprint(2,13,0,1,"FAIL!");
     OLEDprint(5,0,0,1,"PROGRAM STOPPED");
     criticalerror();
-    //OLEDprint(5,0,0,1,"Confirm no backup!"); //has to work with subsequent calls to write
-    //confirm();
   }
   else{
     Serial.println("Internal SD card initialized successfully!");
@@ -348,38 +310,25 @@ void setup(){
   delay(1000);
 
   //----- Setup log file, and write initial configuration ----------------------
-  //open file, or create if empty
-  dataFile = SD.open("RFIDLOG.TXT", FILE_WRITE);
+  dataFile = SD.open("RFIDLOG.TXT", FILE_WRITE); //open file, or create if empty
   dataFileBackup = SDb.open("RFIDLOG_BACKUP.TXT", FILE_WRITE);
   
-  //get experiment start time
-  starttime = now();
+  starttime = now(); //get experiment start time
 
   //write current version to SD and some other startup/system related information
   dataFile.println("");
   dataFile.print("# Modular MoPSS Hive version: ");
   dataFile.println(SOFTWARE_REV);
-
-  dataFile.print("# Door Module 1 version: ");
-  dataFile.println("not yet implemented");
-
-  dataFile.print("# RFID Module 1 version: ");
-  dataFile.println("not yet implemented");
   dataFile.print("# RFID Module 1 resonant frequency: ");
   dataFile.print(reader1_freq);
   dataFile.println(" Hz");
-  dataFile.print("# RFID Module 2 version: ");
-  dataFile.println("not yet implemented");
   dataFile.print("# RFID Module 2 resonant frequency: ");
   dataFile.print(reader2_freq);
   dataFile.println(" Hz");
-
   dataFile.print("# Habituation phase: ");
   dataFile.println(habituation_phase);
-
   dataFile.print("# debug level: ");
   dataFile.println(debug);
-
   dataFile.print("# System start @ ");
   dataFile.print(nicetime(starttime));
   dataFile.print(" ");
@@ -394,31 +343,20 @@ void setup(){
 
   dataFile.flush();
 
-  //and for backup SD
+  //and same for backup SD
   dataFileBackup.println("");
   dataFileBackup.print("# Modular MoPSS Hive version: ");
   dataFileBackup.println(SOFTWARE_REV);
-
-  dataFileBackup.print("# Door Module 1 version: ");
-  dataFileBackup.println("not yet implemented");
-
-  dataFileBackup.print("# RFID Module 1 version: ");
-  dataFileBackup.println("not yet implemented");
   dataFileBackup.print("# RFID Module 1 resonant frequency: ");
   dataFileBackup.print(reader1_freq);
   dataFileBackup.println(" Hz");
-  dataFileBackup.print("# RFID Module 2 version: ");
-  dataFileBackup.println("not yet implemented");
   dataFileBackup.print("# RFID Module 2 resonant frequency: ");
   dataFileBackup.print(reader2_freq);
   dataFileBackup.println(" Hz");
-
   dataFileBackup.print("# Habituation phase: ");
   dataFileBackup.println(habituation_phase);
-
   dataFileBackup.print("# debug level: ");
   dataFileBackup.println(debug);
-
   dataFileBackup.print("# System start @ ");
   dataFileBackup.print(nicetime(starttime));
   dataFileBackup.print(" ");
@@ -433,18 +371,13 @@ void setup(){
 
   dataFileBackup.flush();
   
-  //----- Doors ----------------------------------------------------------------
-  Serial.println("Door Setup");
-  OLEDprint(0,0,1,1,">>> Module Setup <<<");
-  OLEDprint(1,0,0,1,"Setup Doors...");
-  //wait for calibration to finish
-  while(getDoorModuleStatus(doorMod1)) delay(250);
-  
-  OLEDprint(2,0,0,1,"-Done");
+  //----- Setup Doors ----------------------------------------------------------
+  OLEDprint(0,0,1,1,">>> Door Setup <<<");
+  while(getDoorModuleStatus(doorMod1)) delay(250); //wait for calibration to finish
+  OLEDprint(1,0,0,1,"-Done");
   delay(1000); //small delay before clearing display in next step
   
   //---- setup experiment ------------------------------------------------------
-
   //Move both doors up for habituation phase 1
   if(habituation_phase == 1){
     moveDoor(doorMod1,HCdoor,up); //open HCdoor
@@ -453,17 +386,13 @@ void setup(){
     door_open[HCdoor] = 1;
     door_open[TCdoor] = 1;
   }
-  //both doors move simultaneously
-  if(habituation_phase == 2){
-    moveDoor(doorMod1,HCdoor,down);
-    moveDoor(doorMod1,TCdoor,down);
-  }
-  //transitionmanagement
+  //transitionmanagement habituation phase 3
   if(habituation_phase == 3){
+    //ensure both doors start in open position
     moveDoor(doorMod1,HCdoor,up); //open HCdoor
     moveDoor(doorMod1,TCdoor,up); //open TCdoor
     while(getDoorModuleStatus(doorMod1)) delay(250); //while busy wait for move to finish
-    door_moving[HCdoor] = 0;
+    door_moving[HCdoor] = 0;  //set manually here since only updated in loop
     door_moving[TCdoor] = 0;
     door_open[HCdoor] = 1;
     door_open[TCdoor] = 1;
@@ -485,12 +414,9 @@ void loop(){
   //----------------------------------------------------------------------------
   //record RFID tags -----------------------------------------------------------
   //----------------------------------------------------------------------------
-  //takes 198us from start to finishing send, and further 15.2us until rfid-module turns off RFID reader
   //>=80ms are required to cold-start a tag for a successful read (at reduced range)
   //>=90ms for full range, increasing further only seems to increase range due to noise
   //rather than requirements of the tag and coil for energizing (100ms is chosen as a compromise)
-  //REG_PORT_OUTSET0 = PORT_PA15;
-  //REG_PORT_OUTCLR0 = PORT_PA15;
   
   // make a string for assembling the data to log:
   String RFIDdataString = "";
@@ -504,9 +430,7 @@ void loop(){
         
         if(RFIDtoggle == 1){
           RFIDtoggle = 0; //toggle the toggle
-
-          //enable reader2, disable reader1
-          switchReaders(reader2,reader1);
+          switchReaders(reader2,reader1); //enable reader2, disable reader1
           
           //fetch data reader1 collected during on time saved in variable: tag
           tag1_present = fetchtag(reader1, 1);
@@ -531,9 +455,7 @@ void loop(){
         }
         else{
           RFIDtoggle = 1; //toggle the toggle
-          
-          //enable reader1, disable reader2
-          switchReaders(reader1,reader2);
+          switchReaders(reader1,reader2); //enable reader1, disable reader2
           
           //fetch data reader2 collected during on time saved in variable: tag
           tag2_present = fetchtag(reader2, 1);
@@ -572,9 +494,7 @@ void loop(){
       //poll for tag reads every 40ms
       if((millis() - RFIDtime) >= 100){
         RFIDtime = millis();
-      
-        //fetch tag
-        tag1_present = fetchtag(reader1, 0);
+        tag1_present = fetchtag(reader1, 0); //fetch tag
       
         //copy received tag to current tag
         for(uint8_t i = 0; i < sizeof(tag); i++){
@@ -609,9 +529,7 @@ void loop(){
       //poll for tag reads every 40ms
       if((millis() - RFIDtime) >= 100){
         RFIDtime = millis();
-      
-        //fetch tag
-        tag2_present = fetchtag(reader2, 0);
+        tag2_present = fetchtag(reader2, 0); //fetch tag
       
         //copy received tag to current tag
         for(uint8_t i = 0; i < sizeof(tag); i++){
@@ -633,9 +551,9 @@ void loop(){
     break;
   }
   
-  //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-  //do stuff (continuously) ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-  //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  //----------------------------------------------------------------------------
+  //do stuff (continuously) ----------------------------------------------------
+  //----------------------------------------------------------------------------
   
   String SENSORDataString = ""; //create/clear data string
   
@@ -686,7 +604,7 @@ void loop(){
   }
   
   //----------------------------------------------------------------------------
-  //read IR sensors 1+2+3 periodically -----------------------------------------
+  //read IR sensors periodically -----------------------------------------------
   //----------------------------------------------------------------------------
   if((millis() - IRsensor_time) >= 50){ //multiply with buffer size for buffer length ~96us
     IRsensor_time = millis();
@@ -708,57 +626,26 @@ void loop(){
     IR4_cbuffer_sum = 0;
     IR34_cbuffer_sum = 0;
 
-    //calculate all buffer sums
+    //calculate all buffer sums and coincidence (both IR at the same time interrupted)
     for(uint8_t i = 0; i < buffer_reads; i++){ //50 reads = 2.5s
-      //calculate coincidence (both IR at the same time interrupted)
-      //IR1_cbuffer_sum += (IR1_buffer[0][i] && IR1_buffer[1][i]);
       if(IR1_buffer[0][i] && IR1_buffer[1][i]) IR1_cbuffer_sum ++;
       if(IR2_buffer[0][i] && IR2_buffer[1][i]) IR2_cbuffer_sum ++;
       if(IR3_buffer[0][i] && IR3_buffer[1][i]) IR3_cbuffer_sum ++;
       if(IR4_buffer[0][i] && IR4_buffer[1][i]) IR4_cbuffer_sum ++;
       if(IR3_buffer[0][i] && IR3_buffer[1][i] && IR4_buffer[0][i] && IR4_buffer[1][i]) IR34_cbuffer_sum ++;
-
-      // //short buffer -> calculate for last 0.5 sec.
-      // if(sb >= 9){
-      //   if((i >= (sb - 9)) && (i <= sb)){
-      //     IR3_cbuffer_sum_short += (IR3_buffer[0][i] && IR3_buffer[1][i])
-      //     IR4_cbuffer_sum_short += (IR4_buffer[0][i] && IR4_buffer[1][i])
-      //   }
-      // }
-      // else{
-      //   if((i <= sb) || (i >= (buffer_reads - 9 + sb))){ //51 - 3s, 191 - 10s
-      //     IR3_cbuffer_sum_short += (IR3_buffer[0][i] && IR3_buffer[1][i])
-      //     IR4_cbuffer_sum_short += (IR4_buffer[0][i] && IR4_buffer[1][i])
-      //   }
-      // }
     }
+    IR_middle_csum = IR3_cbuffer_sum + IR4_cbuffer_sum; //sum of individual middle buffers
 
-    //sum of individual middle buffers
-    IR_middle_csum = IR3_cbuffer_sum + IR4_cbuffer_sum;
-
-    //count up buffer position, start again at 0 if end of array is reached
-    sb++;
+    sb++; //count up buffer position, start again at 0 if end of array is reached
     if(sb >= buffer_reads) sb = 0;
 
-    // Serial.print(IR1_cbuffer_sum);
-    // Serial.print("|");
-    // Serial.print(IR2_cbuffer_sum);
-    // Serial.print("|");
-    // Serial.print(IR3_cbuffer_sum);
-    // Serial.print("|");
-    // Serial.print(IR4_cbuffer_sum);
-    // Serial.print("|");
-    // Serial.print(IR34_cbuffer_sum);
-    // Serial.print("|");
-    // Serial.println(IR_middle_csum);
-
     //debug only, print buffer (all)
-    // if((IR1_cbuffer_sum + IR2_cbuffer_sum + IR3_cbuffer_sum + IR4_cbuffer_sum) > 0){
-    //   if((debug>=1)&&(sb%25==0)){
-    //     SENSORDataString=createSENSORDataString("IRB",String(IR1_cbuffer_sum)+"|"+String(IR2_cbuffer_sum)+":"+String(IR3_cbuffer_sum)+"-"+String(IR4_cbuffer_sum)+":"+String(IR34_cbuffer_sum),SENSORDataString);
-    //     Serial.println(String(IR1_cbuffer_sum)+"|"+String(IR2_cbuffer_sum)+":"+String(IR3_cbuffer_sum)+"-"+String(IR4_cbuffer_sum)+":"+String(IR34_cbuffer_sum));
-    //   }
-    // }
+    if((IR1_cbuffer_sum + IR2_cbuffer_sum + IR3_cbuffer_sum + IR4_cbuffer_sum) > 0){
+      if((debug>=1)&&(sb%25==0)){
+        SENSORDataString=createSENSORDataString("IRB",String(IR1_cbuffer_sum)+"|"+String(IR2_cbuffer_sum)+":"+String(IR3_cbuffer_sum)+"-"+String(IR4_cbuffer_sum)+":"+String(IR34_cbuffer_sum),SENSORDataString);
+        Serial.println(String(IR1_cbuffer_sum)+"|"+String(IR2_cbuffer_sum)+":"+String(IR3_cbuffer_sum)+"-"+String(IR4_cbuffer_sum)+":"+String(IR34_cbuffer_sum));
+      }
+    }
   }
   
   //----------------------------------------------------------------------------
@@ -817,23 +704,6 @@ void loop(){
   if(habituation_phase == 1){ //both doors are open
     //nothing to do here
   } //end habituation phase 1
-
-  //----------------------------------------------------------------------------
-  //door management for phase 2 ------------------------------------------------
-  //----------------------------------------------------------------------------
-  if(habituation_phase == 2){ //both doors open simultaneously
-    if(IR1_cbuffer_sum > 0)
-    {
-      moveDoor(doorMod1,HCdoor,up);
-      moveDoor(doorMod1,TCdoor,up);
-    }
-    else{
-      moveDoor(doorMod1,HCdoor,down);
-      moveDoor(doorMod1,TCdoor,down);
-    }
-
-
-  } //end habituation phase 2
 
   //----------------------------------------------------------------------------
   //door management for phase 3 ------------------------------------------------
@@ -1011,23 +881,22 @@ void loop(){
 
   } //end habituation phase 3
   
-  //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-  //do other stuff (every now and then) ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-  //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  //----------------------------------------------------------------------------
+  //do other stuff (every now and then) ----------------------------------------
+  //----------------------------------------------------------------------------
 
    if((millis() - displaytime) > 1000){ //~ms display on, off 0.8us
     displaytime = millis();
-    
 
     //switch display on/off if button pressed
     if(analogRead(buttons) < 850){
       displayon = !displayon;
       if(!displayon){
         oled.clearBuffer();   //clear display
-        oled.sendBuffer();}}    //~ms
+        oled.sendBuffer();}}
 
     if(displayon){
-      oled.clearBuffer();             //clear display
+      oled.clearBuffer();     //clear display
       //create nice date string
       time_t rtctime = now();
       uint8_t D = day(rtctime);
@@ -1071,23 +940,12 @@ void loop(){
       OLEDprint(3,13,0,0,IR4_cbuffer_sum);
       OLEDprint(3,16,0,0,IR34_cbuffer_sum);
 
-      // OLEDprint(3,0,0,0,"IR state:");
-      // OLEDprint(3,10,0,0,digitalRead(sensor1));
-      // OLEDprint(3,11,0,0,"|");
-      // OLEDprint(3,12,0,0,IR_aux_status[0]);
-      // OLEDprint(3,13,0,0,IR_aux_status[1]);
-      // OLEDprint(3,14,0,0," ");
-      // OLEDprint(3,15,0,0,IR_aux_status[2]);
-      // OLEDprint(3,16,0,0,IR_aux_status[3]);
-      // OLEDprint(3,17,0,0,"|");
-      // OLEDprint(3,18,0,0,digitalRead(sensor2));
+      //print transition management state
+      OLEDprint(4,0,0,0,"TM state:");
+      OLEDprint(4,10,0,0,String(tm_state,HEX));
 
-      // //print transition management state
-      // OLEDprint(4,0,0,0,"TM state:");
-      // OLEDprint(4,10,0,0,String(tm_state,HEX));
-
-
-      // //Print a letter for each mouse and activity histogram for last 24h
+      //Print a letter for each mouse and activity histogram for last 24h
+      //TODO: make size of bars relative in size
       // String letters = "ABCDEFGHIJKL";
       // for(uint8_t i = 0;i < 12;i++){
       //   oled.setCursor(i*10,63);
@@ -1107,36 +965,24 @@ void loop(){
       //update display
       oled.sendBuffer();}}
 
-  //do stuff every 10 minutes (that needs rtc) ----------------------------------
-  // if((millis() - rtccheck_time) > 600000)
-  // {
-  //   rtccheck_time = millis();
-  //   DateTime now = rtc.now();
-  //   uint32_t rtc_now = now.unixtime();
-  // }
-  
-  //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-	//write Data to log files ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-	//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  //----------------------------------------------------------------------------
+	//write Data to log files ----------------------------------------------------
+	//----------------------------------------------------------------------------
   
 	//log sensor/motor events
   if(SENSORDataString.length() != 0){
-    //append Datastring to file
-    dataFile.println(SENSORDataString);
+    dataFile.println(SENSORDataString); //append Datastring to file
     dataFile.flush();
     dataFileBackup.println(SENSORDataString);
     dataFileBackup.flush();
-
-    if(is_testing == 1) Serial.println(SENSORDataString);
+    if(is_testing == 1) Serial.println(SENSORDataString); //print to serial if in testmode
   }
   //log RFID events
   if(RFIDdataString.length() != 0){ //13.7ms
-		//append Datastring to file
-		dataFile.println(RFIDdataString);
+		dataFile.println(RFIDdataString);	//append Datastring to file
 		dataFile.flush();
 		dataFileBackup.println(RFIDdataString);
 		dataFileBackup.flush();
-
 		if(is_testing == 1) Serial.println(RFIDdataString);
 	}
 
@@ -1146,12 +992,12 @@ void loop(){
 //#####   F U N C T I O N S   ##################################################
 //##############################################################################
 
-//Get Time from internal RTC (updated on program upload)
+//Get Time from internal RTC (updated on program upload) -----------------------
 time_t getTeensy3Time(){
   return Teensy3Clock.get();
   }
 
-//Return time as string in HH:MM:SS format
+//Return time as string in HH:MM:SS format -------------------------------------
 String nicetime(time_t nowtime){
 	String ntime = "";
   uint8_t h = hour(nowtime);// + GMT;
@@ -1169,7 +1015,7 @@ String nicetime(time_t nowtime){
 	return ntime;
 }
 
-//Sensors related functions
+//Sensors related functions ----------------------------------------------------
 String createSENSORDataString(String identifier, String event, String dataString){
   time_t nowtime = now();
 
@@ -1218,7 +1064,7 @@ void OLEDprintFraction(uint8_t row, uint8_t column, uint8_t clear, uint8_t updat
 //Interrupt service routines ---------------------------------------------------
 
 //RFID tag related functions ---------------------------------------------------
-//get ID in string format
+//get ID in string format ------------------------------------------------------
 String getID(uint8_t in[6]){
   uint64_t in64 = 0;
   in64 |= (in[4] & 0b111111);
@@ -1241,14 +1087,14 @@ String getID(uint8_t in[6]){
   return result;
 }
 
-//convert byte array to char
+//convert byte array to char ---------------------------------------------------
 uint16_t getCountryCode(uint8_t in[6]){
   uint16_t countrycode = 0;
   countrycode = ((countrycode | in[5]) << 2) | ((in[4] >> 6) & 0b11);
   return countrycode;
 }
 
-//enable one reader, wait for confirmation from reader
+//enable one reader, wait for confirmation from reader -------------------------
 void enableReader(uint8_t reader){
   uint8_t send_status = 1;
   while(send_status != 0){
@@ -1258,7 +1104,7 @@ void enableReader(uint8_t reader){
   }
 }
 
-//disable one reader, wait for confirmation from reader
+//disable one reader, wait for confirmation from reader ------------------------
 void disableReader(byte reader){
   uint8_t send_status = 1;
   while(send_status != 0){
@@ -1268,7 +1114,7 @@ void disableReader(byte reader){
   }
 }
 
-//switch between two readers, optimized timing for minimum downtime
+//switch between two readers, optimized timing for minimum downtime ------------
 void switchReaders(byte readerON, byte readerOFF){
   //turn on one reader
   Wire.beginTransmission(readerON);
@@ -1291,7 +1137,7 @@ void setReaderMode(uint8_t reader,uint8_t mode){
   }
 }
 
-//start a frequency measurement at the reader
+//start a frequency measurement at the reader ----------------------------------
 void makeFreqMeasurement(uint8_t reader){
   //set mode to measure frequency
   uint8_t send_status = 1;
@@ -1302,7 +1148,7 @@ void makeFreqMeasurement(uint8_t reader){
   }
 }
 
-//Query reader for additional information
+//Query reader for additional information --------------------------------------
 uint32_t fetchResFreq(uint8_t reader){
   //set to frequency measure mode and perform measurement
   setReaderMode(reader,3);
@@ -1318,7 +1164,7 @@ uint32_t fetchResFreq(uint8_t reader){
    n++;
   }
 
-  //assemble from array to 32bit variable
+  //assemble from array to 32bit variable --------------------------------------
   resfreq |= (rcv[3] << 24);
   resfreq |= (rcv[2] << 16);
   resfreq |= (rcv[1] <<  8);
@@ -1330,7 +1176,7 @@ uint32_t fetchResFreq(uint8_t reader){
   return resfreq;
 }
 
-//fetch tag data from reader
+//fetch tag data from reader ---------------------------------------------------
 byte fetchtag(byte reader, byte busrelease){
   //request tag-data from reader
   Wire.requestFrom(reader,6,busrelease); //address, quantity ~574uS, bus release
@@ -1520,24 +1366,24 @@ void moveDoor(uint8_t address,uint8_t door,uint8_t direction){
 
 //------------------------------------------------------------------------------
 //used only in emergencies when it can't be guaranteed that the door module will aknowledge receive
-void moveDoorNoConfirm(uint8_t door, uint8_t direction){
-  uint8_t address = stepper_address[door];
-  uint16_t pulsetime = door_speed[door];
+// void moveDoorNoConfirm(uint8_t door, uint8_t direction){
+//   uint8_t address = stepper_address[door];
+//   uint16_t pulsetime = door_speed[door];
 
-  uint8_t sendbuffer[7] = {0,0,0,0,0,0,0};
-  sendbuffer[0] = 2;
+//   uint8_t sendbuffer[7] = {0,0,0,0,0,0,0};
+//   sendbuffer[0] = 2;
 
-  sendbuffer[1] = direction;
+//   sendbuffer[1] = direction;
 
-  sendbuffer[2] = pulsetime & 0xff;
-  sendbuffer[3] = (pulsetime >> 8) & 0xff;
+//   sendbuffer[2] = pulsetime & 0xff;
+//   sendbuffer[3] = (pulsetime >> 8) & 0xff;
 
-  Wire.beginTransmission(address); //address
-  for(uint8_t i = 0; i < 7; i++){
-    Wire.write(sendbuffer[i]);
-  }
-  Wire.endTransmission();
-}
+//   Wire.beginTransmission(address); //address
+//   for(uint8_t i = 0; i < 7; i++){
+//     Wire.write(sendbuffer[i]);
+//   }
+//   Wire.endTransmission();
+// }
 
 //critical error, flash LED SOS ------------------------------------------------
 void criticalerror(){
