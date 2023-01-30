@@ -24,6 +24,12 @@ D32 - ERR LED   Error LED, used for various error states
 D31 - STAT LED  Status LED, can be used to signal stuff
 A13 - B1,B2,B3  Input from the three buttons on the board
 
+D11 - MOSI
+D12 - MISO
+D13 - SCK
+D18 - SDA
+D19 - SCL
+
 --- Experimental Setup ---
 
 ^^^^^^^\                                                         /^^^^^^^^
