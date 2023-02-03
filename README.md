@@ -1,5 +1,5 @@
 # The Modular Mouse Position Surveillance System (ModMoPSS)
-//Fancy header that gives introduction to the ModMoPSS System
+Fancy header that gives introduction to the ModMoPSS System
 The Modular Mouse Position System is an open source behavioral experimentation platform for mice.
 
 ## Modular MoPSS Main Controller Unit
@@ -39,13 +39,13 @@ module testing (solo?)
 
 For further information don't hesitate to contact us.
 
-See also:
-https://github.com/RefinementReferenceCenter/Modular-MoPSS-Hardware
-https://github.com/RefinementReferenceCenter/Modular-MoPSS-RFID
-https://github.com/RefinementReferenceCenter/Modular-MoPSS-Door
+See also: \
+https://github.com/RefinementReferenceCenter/Modular-MoPSS-Hardware \
+https://github.com/RefinementReferenceCenter/Modular-MoPSS-RFID \
+https://github.com/RefinementReferenceCenter/Modular-MoPSS-Door 
 
 ##### Relevant papers
-Rating enrichment items by female group-housed laboratory mice in multiple binary choice tests using an RFID-based tracking system. http://doi.org/10.1371/journal.pone.0278709
+Rating enrichment items by female group-housed laboratory mice in multiple binary choice tests using an RFID-based tracking system. http://doi.org/10.1371/journal.pone.0278709 \
 O mouse, where art thou? The Mouse Position Surveillance System (MoPSS)—an RFID-based tracking system https://doi.org/10.3758/s13428-021-01593-7
 
 The contents of this repository are distributed under the GNU General Public License v3.0
