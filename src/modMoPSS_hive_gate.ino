@@ -47,6 +47,9 @@ _______/                  |-----   X cm  -----|                  \________
 #include <Wire.h>     //I2C communication
 #include <SdFat.h>    //Access SD Cards
 #include <U8g2lib.h>  //for SSD1306 OLED Display
+#include <NativeEthernet.h> 
+#include <NativeEthernetUdp.h>
+
 
 //----- declaring variables ----------------------------------------------------
 //Current Version of the program
@@ -186,6 +189,22 @@ uint8_t mice_visits[mice][2];      //contains the number of tag reads at reader 
 uint8_t current_mouse1 = 0;        //placeholder simple number for tag at reader 1
 uint8_t current_mouse2 = 0;        //placeholder simple number for tag at reader 2
 
+//ETHERNET
+// Enter a MAC address and IP address for your controller below.
+// The IP address will be dependent on your local network:
+byte mac[] = {0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xEE};
+IPAddress ip(192, 168, 1, 177);
+
+unsigned int localPort = 8888;      // local port to listen on
+
+// buffers for receiving and sending data
+char packetBuffer[UDP_TX_PACKET_MAX_SIZE];  // buffer to hold incoming packet,
+char ReplyBuffer[] = "acknowledged";        // a string to send back
+
+// An EthernetUDP instance to let us send and receive packets over UDP
+EthernetUDP Udp;
+
+
 //##############################################################################
 //#####   U S E R   C O N F I G  ###############################################
 //##############################################################################
@@ -226,12 +245,31 @@ void setup(){
   //start Serial communication
   Serial.begin(115200);
   if(is_testing == 1){
-    //while(!Serial); //wait for serial connection
+    while(!Serial); //wait for serial connection
     Serial.println("alive");
   }
   
   //start I2C
   Wire.begin();
+
+  //----- Ethernet -------------------------------------------------------------
+  // start the Ethernet
+  Ethernet.begin(mac, ip);
+
+  // Check for Ethernet hardware present
+  if (Ethernet.hardwareStatus() == EthernetNoHardware) {
+    Serial.println("Ethernet shield was not found.  Sorry, can't run without hardware. :(");
+    while (true) {
+      delay(1); // do nothing, no point running without Ethernet hardware
+    }
+  }
+  if (Ethernet.linkStatus() == LinkOFF) {
+    Serial.println("Ethernet cable is not connected.");
+  }
+
+  // start UDP
+  Udp.begin(localPort);
+
 
   //----- Buttons & Fans -------------------------------------------------------
   pinMode(buttons,INPUT);
@@ -256,160 +294,160 @@ void setup(){
   oled.begin();
   oled.setFont(u8g2_font_6x10_mf); //set font w5 h10
 
-  //----- Setup RFID readers ---------------------------------------------------
-  //measure resonant frequency and confirm/repeat on detune
-  uint8_t RFIDmodulestate = 0;
-  int32_t reader1_freq = 0;
-  int32_t reader2_freq = 0;
-  while(RFIDmodulestate == 0){
-    OLEDprint(0,0,1,1,">>> RFID Setup <<<");
-    OLEDprint(1,0,0,1,"reader 1:");
-    OLEDprint(2,0,0,1,"reader 2:");
-    reader1_freq = fetchResFreq(reader1);
-    OLEDprintFraction(2,10,0,1,(float)reader1_freq/1000,3);
-    OLEDprint(1,17,0,1,"kHz");
-    reader2_freq = fetchResFreq(reader2);
-    OLEDprintFraction(2,10,0,1,(float)reader2_freq/1000,3);
-    OLEDprint(2,17,0,1,"kHz");
+  // //----- Setup RFID readers ---------------------------------------------------
+  // //measure resonant frequency and confirm/repeat on detune
+  // uint8_t RFIDmodulestate = 0;
+  // int32_t reader1_freq = 0;
+  // int32_t reader2_freq = 0;
+  // while(RFIDmodulestate == 0){
+  //   OLEDprint(0,0,1,1,">>> RFID Setup <<<");
+  //   OLEDprint(1,0,0,1,"reader 1:");
+  //   OLEDprint(2,0,0,1,"reader 2:");
+  //   reader1_freq = fetchResFreq(reader1);
+  //   OLEDprintFraction(2,10,0,1,(float)reader1_freq/1000,3);
+  //   OLEDprint(1,17,0,1,"kHz");
+  //   reader2_freq = fetchResFreq(reader2);
+  //   OLEDprintFraction(2,10,0,1,(float)reader2_freq/1000,3);
+  //   OLEDprint(2,17,0,1,"kHz");
 
-    if((abs(reader1_freq - 134200) >= 1000) || (abs(reader2_freq - 134200) >= 1000)){
-      OLEDprint(4,0,0,1,"Antenna detuned!");
-      OLEDprint(5,0,0,1,"CONFIRM");
-      OLEDprint(5,14,0,1,"REPEAT");
-      uint8_t buttonpress = getButton();
-      if(buttonpress == 1) RFIDmodulestate = 1;
-    }
-    else{
-      OLEDprint(5,0,0,1,"-Done");
-      delay(1000);  //to give time to actually read the display
-      RFIDmodulestate = 1;
-    }
-  }
+  //   if((abs(reader1_freq - 134200) >= 1000) || (abs(reader2_freq - 134200) >= 1000)){
+  //     OLEDprint(4,0,0,1,"Antenna detuned!");
+  //     OLEDprint(5,0,0,1,"CONFIRM");
+  //     OLEDprint(5,14,0,1,"REPEAT");
+  //     uint8_t buttonpress = getButton();
+  //     if(buttonpress == 1) RFIDmodulestate = 1;
+  //   }
+  //   else{
+  //     OLEDprint(5,0,0,1,"-Done");
+  //     delay(1000);  //to give time to actually read the display
+  //     RFIDmodulestate = 1;
+  //   }
+  // }
   
-  //----- Setup SD Card --------------------------------------------------------
-  //Stop program if uSDs are not detected/faulty (needs to be FAT/FAT32/exFAT format)
-  OLEDprint(0,0,1,1,">>>  uSD  Setup  <<<");
-  OLEDprint(1,0,0,1,"SD EXternal:"); //see if the cards are present and can be initialized
-  OLEDprint(2,0,0,1,"SD INternal:");
+  // //----- Setup SD Card --------------------------------------------------------
+  // //Stop program if uSDs are not detected/faulty (needs to be FAT/FAT32/exFAT format)
+  // OLEDprint(0,0,1,1,">>>  uSD  Setup  <<<");
+  // OLEDprint(1,0,0,1,"SD EXternal:"); //see if the cards are present and can be initialized
+  // OLEDprint(2,0,0,1,"SD INternal:");
   
-  //SD card external (main, for data collection)
-  if(!SD.begin(SDcs)){
-    OLEDprint(1,13,0,1,"FAIL!");
-    OLEDprint(5,0,0,1,"PROGRAM STOPPED");
-    criticalerror();
-  }
-  else{
-    Serial.println("External SD card initialized successfully!");
-    OLEDprint(1,13,0,1,"OK!");
-  }
-  //SD card internal (Backup)
-  if(!SDb.begin(SdioConfig(FIFO_SDIO))){ //internal SD Card
-    OLEDprint(2,13,0,1,"FAIL!");
-    OLEDprint(5,0,0,1,"PROGRAM STOPPED");
-    criticalerror();
-  }
-  else{
-    Serial.println("Internal SD card initialized successfully!");
-    OLEDprint(2,13,0,1,"OK!");
-  }
-  delay(1000);
+  // //SD card external (main, for data collection)
+  // if(!SD.begin(SDcs)){
+  //   OLEDprint(1,13,0,1,"FAIL!");
+  //   OLEDprint(5,0,0,1,"PROGRAM STOPPED");
+  //   criticalerror();
+  // }
+  // else{
+  //   Serial.println("External SD card initialized successfully!");
+  //   OLEDprint(1,13,0,1,"OK!");
+  // }
+  // //SD card internal (Backup)
+  // if(!SDb.begin(SdioConfig(FIFO_SDIO))){ //internal SD Card
+  //   OLEDprint(2,13,0,1,"FAIL!");
+  //   OLEDprint(5,0,0,1,"PROGRAM STOPPED");
+  //   criticalerror();
+  // }
+  // else{
+  //   Serial.println("Internal SD card initialized successfully!");
+  //   OLEDprint(2,13,0,1,"OK!");
+  // }
+  // delay(1000);
 
-  //----- Setup log file, and write initial configuration ----------------------
-  dataFile = SD.open("RFIDLOG.TXT", FILE_WRITE); //open file, or create if empty
-  dataFileBackup = SDb.open("RFIDLOG_BACKUP.TXT", FILE_WRITE);
+  // //----- Setup log file, and write initial configuration ----------------------
+  // dataFile = SD.open("RFIDLOG.TXT", FILE_WRITE); //open file, or create if empty
+  // dataFileBackup = SDb.open("RFIDLOG_BACKUP.TXT", FILE_WRITE);
   
-  starttime = now(); //get experiment start time
+  // starttime = now(); //get experiment start time
 
-  //write current version to SD and some other startup/system related information
-  dataFile.println("");
-  dataFile.print("# Modular MoPSS Hive version: ");
-  dataFile.println(SOFTWARE_REV);
-  dataFile.print("# RFID Module 1 resonant frequency: ");
-  dataFile.print(reader1_freq);
-  dataFile.println(" Hz");
-  dataFile.print("# RFID Module 2 resonant frequency: ");
-  dataFile.print(reader2_freq);
-  dataFile.println(" Hz");
-  dataFile.print("# Habituation phase: ");
-  dataFile.println(habituation_phase);
-  dataFile.print("# debug level: ");
-  dataFile.println(debug);
-  dataFile.print("# System start @ ");
-  dataFile.print(nicetime(starttime));
-  dataFile.print(" ");
-  dataFile.print(day(starttime));
-  dataFile.print("-");
-  dataFile.print(month(starttime));
-  dataFile.print("-");
-  dataFile.println(year(starttime));
-  dataFile.print("# Unixtime: ");
-  dataFile.println(starttime);
-  dataFile.println();
+  // //write current version to SD and some other startup/system related information
+  // dataFile.println("");
+  // dataFile.print("# Modular MoPSS Hive version: ");
+  // dataFile.println(SOFTWARE_REV);
+  // dataFile.print("# RFID Module 1 resonant frequency: ");
+  // dataFile.print(reader1_freq);
+  // dataFile.println(" Hz");
+  // dataFile.print("# RFID Module 2 resonant frequency: ");
+  // dataFile.print(reader2_freq);
+  // dataFile.println(" Hz");
+  // dataFile.print("# Habituation phase: ");
+  // dataFile.println(habituation_phase);
+  // dataFile.print("# debug level: ");
+  // dataFile.println(debug);
+  // dataFile.print("# System start @ ");
+  // dataFile.print(nicetime(starttime));
+  // dataFile.print(" ");
+  // dataFile.print(day(starttime));
+  // dataFile.print("-");
+  // dataFile.print(month(starttime));
+  // dataFile.print("-");
+  // dataFile.println(year(starttime));
+  // dataFile.print("# Unixtime: ");
+  // dataFile.println(starttime);
+  // dataFile.println();
 
-  dataFile.flush();
+  // dataFile.flush();
 
-  //and same for backup SD
-  dataFileBackup.println("");
-  dataFileBackup.print("# Modular MoPSS Hive version: ");
-  dataFileBackup.println(SOFTWARE_REV);
-  dataFileBackup.print("# RFID Module 1 resonant frequency: ");
-  dataFileBackup.print(reader1_freq);
-  dataFileBackup.println(" Hz");
-  dataFileBackup.print("# RFID Module 2 resonant frequency: ");
-  dataFileBackup.print(reader2_freq);
-  dataFileBackup.println(" Hz");
-  dataFileBackup.print("# Habituation phase: ");
-  dataFileBackup.println(habituation_phase);
-  dataFileBackup.print("# debug level: ");
-  dataFileBackup.println(debug);
-  dataFileBackup.print("# System start @ ");
-  dataFileBackup.print(nicetime(starttime));
-  dataFileBackup.print(" ");
-  dataFileBackup.print(day(starttime));
-  dataFileBackup.print("-");
-  dataFileBackup.print(month(starttime));
-  dataFileBackup.print("-");
-  dataFileBackup.println(year(starttime));
-  dataFileBackup.print("# Unixtime: ");
-  dataFileBackup.println(starttime);
-  dataFileBackup.println();
+  // //and same for backup SD
+  // dataFileBackup.println("");
+  // dataFileBackup.print("# Modular MoPSS Hive version: ");
+  // dataFileBackup.println(SOFTWARE_REV);
+  // dataFileBackup.print("# RFID Module 1 resonant frequency: ");
+  // dataFileBackup.print(reader1_freq);
+  // dataFileBackup.println(" Hz");
+  // dataFileBackup.print("# RFID Module 2 resonant frequency: ");
+  // dataFileBackup.print(reader2_freq);
+  // dataFileBackup.println(" Hz");
+  // dataFileBackup.print("# Habituation phase: ");
+  // dataFileBackup.println(habituation_phase);
+  // dataFileBackup.print("# debug level: ");
+  // dataFileBackup.println(debug);
+  // dataFileBackup.print("# System start @ ");
+  // dataFileBackup.print(nicetime(starttime));
+  // dataFileBackup.print(" ");
+  // dataFileBackup.print(day(starttime));
+  // dataFileBackup.print("-");
+  // dataFileBackup.print(month(starttime));
+  // dataFileBackup.print("-");
+  // dataFileBackup.println(year(starttime));
+  // dataFileBackup.print("# Unixtime: ");
+  // dataFileBackup.println(starttime);
+  // dataFileBackup.println();
 
-  dataFileBackup.flush();
+  // dataFileBackup.flush();
   
-  //----- Setup Doors ----------------------------------------------------------
-  OLEDprint(0,0,1,1,">>> Door Setup <<<");
-  while(getDoorModuleStatus(doorMod1)) delay(250); //wait for calibration to finish
-  OLEDprint(1,0,0,1,"-Done");
-  delay(1000); //small delay before clearing display in next step
+  // //----- Setup Doors ----------------------------------------------------------
+  // OLEDprint(0,0,1,1,">>> Door Setup <<<");
+  // while(getDoorModuleStatus(doorMod1)) delay(250); //wait for calibration to finish
+  // OLEDprint(1,0,0,1,"-Done");
+  // delay(1000); //small delay before clearing display in next step
   
-  //---- setup experiment ------------------------------------------------------
-  //Move both doors up for habituation phase 1
-  if(habituation_phase == 1){
-    moveDoor(doorMod1,HCdoor,up); //open HCdoor
-    moveDoor(doorMod1,TCdoor,up); //open TCdoor
-    while(getDoorModuleStatus(doorMod1)) delay(250); //while busy wait for move to finish
-    door_open[HCdoor] = 1;
-    door_open[TCdoor] = 1;
-  }
-  //transitionmanagement habituation phase 3
-  if(habituation_phase == 3){
-    //ensure both doors start in open position
-    moveDoor(doorMod1,HCdoor,up); //open HCdoor
-    moveDoor(doorMod1,TCdoor,up); //open TCdoor
-    while(getDoorModuleStatus(doorMod1)) delay(250); //while busy wait for move to finish
-    door_moving[HCdoor] = 0;  //set manually here since only updated in loop
-    door_moving[TCdoor] = 0;
-    door_open[HCdoor] = 1;
-    door_open[TCdoor] = 1;
+  // //---- setup experiment ------------------------------------------------------
+  // //Move both doors up for habituation phase 1
+  // if(habituation_phase == 1){
+  //   moveDoor(doorMod1,HCdoor,up); //open HCdoor
+  //   moveDoor(doorMod1,TCdoor,up); //open TCdoor
+  //   while(getDoorModuleStatus(doorMod1)) delay(250); //while busy wait for move to finish
+  //   door_open[HCdoor] = 1;
+  //   door_open[TCdoor] = 1;
+  // }
+  // //transitionmanagement habituation phase 3
+  // if(habituation_phase == 3){
+  //   //ensure both doors start in open position
+  //   moveDoor(doorMod1,HCdoor,up); //open HCdoor
+  //   moveDoor(doorMod1,TCdoor,up); //open TCdoor
+  //   while(getDoorModuleStatus(doorMod1)) delay(250); //while busy wait for move to finish
+  //   door_moving[HCdoor] = 0;  //set manually here since only updated in loop
+  //   door_moving[TCdoor] = 0;
+  //   door_open[HCdoor] = 1;
+  //   door_open[TCdoor] = 1;
 
-    moveDoor(doorMod1,TCdoor,down); //close TCdoor
-    while(getDoorModuleStatus(doorMod1)) delay(250);
-    door_moving[HCdoor] = 0;
-    door_moving[TCdoor] = 0;
-    door_open[TCdoor] = 0;
+  //   moveDoor(doorMod1,TCdoor,down); //close TCdoor
+  //   while(getDoorModuleStatus(doorMod1)) delay(250);
+  //   door_moving[HCdoor] = 0;
+  //   door_moving[TCdoor] = 0;
+  //   door_open[TCdoor] = 0;
 
-    tm_state = 0x1A;  //start in state 1A
-  }
+  //   tm_state = 0x1A;  //start in state 1A
+  // }
 } //end of setup
 
 //##############################################################################
@@ -418,9 +456,45 @@ void setup(){
 void loop(){
 
   //create/clear strings that get written to uSD card
-  String RFIDdataString = ""; //holds tag and date
-  String SENSORDataString = ""; //holds various sensor and diagnostics data
+  //String RFIDdataString = ""; //holds tag and date
+  //String SENSORDataString = ""; //holds various sensor and diagnostics data
   
+
+
+
+  // if there's data available, read a packet
+  int packetSize = Udp.parsePacket();
+  if (packetSize) {
+    Serial.print("Received packet of size ");
+    Serial.println(packetSize);
+    Serial.print("From ");
+    IPAddress remote = Udp.remoteIP();
+    for (int i=0; i < 4; i++) {
+      Serial.print(remote[i], DEC);
+      if (i < 3) {
+        Serial.print(".");
+      }
+    }
+    Serial.print(", port ");
+    Serial.println(Udp.remotePort());
+
+    // read the packet into packetBufffer
+    Udp.read(packetBuffer, UDP_TX_PACKET_MAX_SIZE);
+    Serial.println("Contents:");
+    Serial.println(packetBuffer);
+
+    // send a reply to the IP address and port that sent us the packet we received
+    Udp.beginPacket(Udp.remoteIP(), Udp.remotePort());
+    Udp.write(ReplyBuffer);
+    Udp.endPacket();
+  }
+  delay(10);
+
+//https://github.com/vjmuzik/NativeEthernet/blob/master/examples/UDPSendReceiveString/UDPSendReceiveString.ino
+
+
+
+  /*
   //----------------------------------------------------------------------------
   //record RFID tags -----------------------------------------------------------
   //----------------------------------------------------------------------------
@@ -806,7 +880,7 @@ void loop(){
       SENSORDataString = createSENSORDataString("TC","occupied FS",SENSORDataString);
     }
   } //end habituation phase 3
-  
+  */
   //----------------------------------------------------------------------------
   //update display -------------------------------------------------------------
   //----------------------------------------------------------------------------
@@ -894,25 +968,25 @@ void loop(){
     }
   }
 
-  //----------------------------------------------------------------------------
-	//write Data to log files ----------------------------------------------------
-	//----------------------------------------------------------------------------
-	//log sensor/motor events
-  if(SENSORDataString.length() != 0){
-    dataFile.println(SENSORDataString); //append Datastring to file
-    dataFile.flush();
-    dataFileBackup.println(SENSORDataString);
-    dataFileBackup.flush();
-    if(is_testing == 1) Serial.println(SENSORDataString); //print to serial if in testmode
-  }
-  //log RFID events
-  if(RFIDdataString.length() != 0){
-		dataFile.println(RFIDdataString);	//append Datastring to file
-		dataFile.flush();
-		dataFileBackup.println(RFIDdataString);
-		dataFileBackup.flush();
-		if(is_testing == 1) Serial.println(RFIDdataString);
-	}
+  // //----------------------------------------------------------------------------
+	// //write Data to log files ----------------------------------------------------
+	// //----------------------------------------------------------------------------
+	// //log sensor/motor events
+  // if(SENSORDataString.length() != 0){
+  //   dataFile.println(SENSORDataString); //append Datastring to file
+  //   dataFile.flush();
+  //   dataFileBackup.println(SENSORDataString);
+  //   dataFileBackup.flush();
+  //   if(is_testing == 1) Serial.println(SENSORDataString); //print to serial if in testmode
+  // }
+  // //log RFID events
+  // if(RFIDdataString.length() != 0){
+	// 	dataFile.println(RFIDdataString);	//append Datastring to file
+	// 	dataFile.flush();
+	// 	dataFileBackup.println(RFIDdataString);
+	// 	dataFileBackup.flush();
+	// 	if(is_testing == 1) Serial.println(RFIDdataString);
+	// }
 
 } //end of loop
 
