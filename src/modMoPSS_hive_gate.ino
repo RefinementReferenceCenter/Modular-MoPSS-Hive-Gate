@@ -192,14 +192,14 @@ uint8_t current_mouse2 = 0;        //placeholder simple number for tag at reader
 //ETHERNET
 using namespace qindesign::network;
 
-IPAddress ip{192,168,0,100};   // Unique IP
+IPAddress ip{20,0,0,100};   // Unique IP
 IPAddress sn{255,255,255,0};  // Subnet Mask
-IPAddress gw{192,168,0,1};       // Default Gateway
+IPAddress gw{20,0,0,1};       // Default Gateway
 // Initialize the Ethernet server library with the IP address and port
 // to use.  (port 80 is default for HTTP):
-IPAddress sip{192,168,0,20};
-//EthernetServer server(9093);
-EthernetClient client;
+IPAddress sip{20,0,0,20};
+//EthernetServer server(8888);
+//EthernetClient client;
 
 //##############################################################################
 //#####   S E T U P   ##########################################################
@@ -230,10 +230,10 @@ void setup(){
          mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
   
 
-  EthernetClient client;
-  if(client.connect(sip,9093)){
-    Serial.println("connected");
-  }
+  // EthernetClient client;
+  // if(client.connect(sip,9093)){
+  //   Serial.println("connected");
+  // }
 
 
   //----- Buttons & Fans -------------------------------------------------------
@@ -282,24 +282,32 @@ void loop(){
   // }
 
 
-    EthernetClient client;
+  EthernetClient client1;  //create new client object
+  if (!client1.connect(sip, 8888)) { //connect to server ip and port
+      Serial.println("Connection to host failed");
+      delay(1000);
+      return;
+  }
+  Serial.println("Connection to server successful!");
+  client1.write("C1,RFID,IRSTATUS,FANSTATUS,RANDOMDATA"); //send data to server
+  Serial.println("Disconnecting...");
+  client1.stop();  //close connection
 
-    if (!client.connect(sip, 9093)) {
+  delay(500);
+  
+  EthernetClient client2;  //create new client object
+  if (!client2.connect(sip, 8888)) { //connect to server ip and port
+      Serial.println("Connection to host failed");
+      delay(1000);
+      return;
+  }
+  Serial.println("Connection to server successful!");
+  client2.write("C2,RFID,IRSTATUS,FANSTATUS,RANDOMDATA"); //send data to server
+  Serial.println("Disconnecting...");
+  client2.stop();  //close connection
 
-        Serial.println("Connection to host failed");
+  delay(500);
 
-        delay(1000);
-        return;
-    }
-
-    Serial.println("Connected to server successful!");
-
-    client.print("blabla");
-
-    Serial.println("Disconnecting...");
-    client.stop();
-
-    delay(10000);
 
 
   digitalWriteFast(34,LOW);
