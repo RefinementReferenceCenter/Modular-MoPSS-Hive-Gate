@@ -5,25 +5,29 @@ Due to the flexibility of the modMoPSS, multiple RFID- and door-modules can be e
 
 ## Modular MoPSS Main Controller Unit
 
-This is the code for the main controller unit (Hive-module) which controls the high level behavior of all Modular MoPSS modules.
+This is the repository for the main controller unit (Hive-module) which controls the high level behavior of all Modular MoPSS modules.
 
+## ModMoPSS as a gate (1 RFID-module, 1 door-module)
 The Hive-Gate setup is designed to operate a gating-system for mice. The gate should only allow one mouse at a time to pass through the gate. In our example a homecage is connected to a "testcage" via the gate. All mice start in the homecage, at any time a single mouse can transition through the gate into the testcage. Since the testcage is now occupied, no additional mouse can transition through the gate until the mouse occupying the testcage has returned (via the gate) to the homecage.
 This setup allows mice to voluntarily enter a testcage in which e.g. preference tests can be presented. The mouse can perform these tests without interference from other mice.
-In this specific setup we are using four IR-barriers, two fans, one RFID-module with two RFID antennas and one Door-module that controls two Doors.
+In this specific setup we are using four IR-barriers, two fans, one RFID-module with two RFID antennas and one Door-module that controls two doors.
 
+## ModMoPSS a tracker (1 RFID-module)
+The ModMoPSS setup as a simple tracker uses a single RFID module with two antennas. The two antennas can connect two cages and are spaced approximately X cm apart. To avoid interference the antennas are only switched on alternately with a 100 ms interval. Complementary to this setup, the "ModMoPSS Evaluationscript" allows the reconstruction of transitions of mice between the two cages. Allowing the evaluation of stay duration, and (transition)activity of each mouse.
 
 
 # Developer Guide
 
 ## Software
+Any changes to the code of the ModMoPSS system should always take into consideration the importance of timing. The system must always be able to respond in the fastest way possible to all inputs.
 ### Using the ModMoPSS as a gating system
-### Modifying Experiment parameters
+### Modifying experiment parameters
 ### Modifying the experiment
 
 ## Hardware
 The limit in software is >200 individual Modules (I²C address limitation) however current capabilities of the power supply unit and current carrying capabilities of the PCBs must be considered and when necessary adapted. 
 
-### RFID Antenna placement and setup
+### RFID antenna placement and setup
 RFID antennas need to be placed at an appropriate distance from metal objects to avoid detuning the antenna. During boot-up the resonant frequency is checked and the user will be alerted via the display of the measured resonant frequency and additional input is required if the antenna is too severely out of tune. The standard configuration of tuning capacitors in the design files is optimized towards an Antenna in free air. If the antenna is mounted near a metal object, e.g. a water bottle or the metal lid, the variable tuning capacitor on the PCB can be used to correct the resonant frequency. However it might be the case that additional capacitors have to be soldered to the board to achieve proper tuning. /
 Care has to be taken to avoid interference from other antennas. Antennas that are close together and on the same axis (e.g. the gate) will produce interference and prevent successful RFID tag reads. To prevent this, the antennas have to be turned on and off alternately. This is the standard setting and happens at 100ms intervals.
 
@@ -37,15 +41,15 @@ IR-barriers with a solder bridge enable the use of the two perpendicular IR LEDs
 # Experimenter Guide
 
 ## Assembly
-PCB fab, Soldering, 3D printing, Acrylic tubes etc.
-Bilder...
+- PCBs can be ordered online with the appropriate gerber files contained in the ModMoPSS hardware repository. BOM and Pick and place files are included as well.
+- Necessary 3D-printing files, additional hardware (screws, microncotroller, cables etc.) are also included in a separate file in the hardware repository.
 
 ## Installation
-module testing
+The microcontrollers on each module have to be flashed with the correct firmware which can be found in the appropriate repositories. Care should be taken to assign appropriate I²C addresses (no duplicates) to each microcontroller and adjust the addresses appropriately for the hive module.
 
 
-## This is a work in progress, documentation and functionality are still in the process of being fine-tuned and experimentally validated
-### A publication for the ModMoPSS with experimental validation is in the works.
+### This is a work in progress, documentation and functionality are still in the process of being fine-tuned and experimentally validated
+#### A publication for the ModMoPSS with experimental validation is in the works.
 
 For further information don't hesitate to contact us.
 
