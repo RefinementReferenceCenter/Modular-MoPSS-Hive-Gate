@@ -1,16 +1,17 @@
 # The Modular Mouse Position Surveillance System (ModMoPSS)
-Fancy header that gives introduction to the ModMoPSS System
-The Modular Mouse Position System is an open source behavioral experimentation platform for mice.
+The Modular Mouse Position Surveillance System is an open source behavioral experimentation platform (for mice). The System provides Hardware and software for surveillance tasks via infrared light barriers and RFID tracking (with body temperature recording) and control tasks with the implementation of doors.
+
+Due to the flexibility of the modMoPSS, multiple RFID and Stepper modules can be employed to any functions beyond moving doors. It is also easily possible to develop additional modules as all PCB files and the complete code is open source.
 
 ## Modular MoPSS Main Controller Unit
 
 This is the code for the main controller unit (Hive-module) which controls the high level behavior of all Modular MoPSS modules.
 
-The Hive-Gate module is designed to operate a Gating-System for mice. The Gate should only allow one mouse at a time to pass through the gate. In our Example a Homecage is connected to a "Testcage" via the gate. All mice start in the Homecage, at any time a single mouse can transition through the gate into the Testcage. Since the Testcage is now occupied, no additional mouse can transition through the gate until the mouse occupying the Testcage has returned (via the gate) to the Homecage.
-This setup allows mice to voluntarily enter a Testcage in which e.g. preference tests can be presented. The mouse can perform these tests without interference from other mice.
-In this specific setup we are using four IR-barriers, two fans, one RFID-module with two RFID antennas and one Stepper-Module that controls two Doors.
+The Hive-Gate setup is designed to operate a gating-system for mice. The gate should only allow one mouse at a time to pass through the gate. In our example a homecage is connected to a "testcage" via the gate. All mice start in the homecage, at any time a single mouse can transition through the gate into the testcage. Since the testcage is now occupied, no additional mouse can transition through the gate until the mouse occupying the testcage has returned (via the gate) to the homecage.
+This setup allows mice to voluntarily enter a testcage in which e.g. preference tests can be presented. The mouse can perform these tests without interference from other mice.
+In this specific setup we are using four IR-barriers, two fans, one RFID-module with two RFID antennas and one Door-module that controls two Doors.
 
-Due to the flexibility of the modular MoPSS multiple RFID and Stepper modules can be employed to any functions beyond moving doors. It also easily possible to develop additional modules as all PCB files and the complete Code is open source. The limit in software is >200 Modules however current capabilities of the power supply unit and current carrying capabilities of the PCBs must be considered and when necessary adapted. 
+
 
 # Developer Guide
 
@@ -20,10 +21,18 @@ Due to the flexibility of the modular MoPSS multiple RFID and Stepper modules ca
 ### Modifying the experiment
 
 ## Hardware
-### RFID Antenna placement and setup
-### Stepper module setup
-### IR barrier setup
+The limit in software is >200 individual Modules (I²C address limitation) however current capabilities of the power supply unit and current carrying capabilities of the PCBs must be considered and when necessary adapted. 
 
+### RFID Antenna placement and setup
+RFID antennas need to be placed at an appropriate distance from metal objects to avoid detuning the antenna. During boot-up the resonant frequency is checked and the user will be alerted via the display of the measured resonant frequency and additional input is required if the antenna is too severely out of tune. The standard configuration of tuning capacitors in the design files is optimized towards an Antenna in free air. If the antenna is mounted near a metal object, e.g. a water bottle or the metal lid, the variable tuning capacitor on the PCB can be used to correct the resonant frequency. However it might be the case that additional capacitors have to be soldered to the board to achieve proper tuning.
+Another source for malfunction is interference from other antennas. Antennas that are close together and on the same axis (e.g. the gate) the antennas have to be turned on and off alternately. This is the standard setting and happens at 100ms intervals.
+
+### Door module setup
+The door module uses two infrared light barriers as positional feedback for the door. During startup these IR barriers are used to calibrate door movement distance (stepper step count). Standard configuration uses the upper IR barrier to determine that the door is fully open and the calibrated step count during down movent to assure closing. This is necessary as mice like to bite into the door and by pulling on it causing the stepper motor to skip steps which in turn means loss of absolute position which is then reestablished via the IR barriers. 
+
+### IR barrier setup
+Each IR-barrier actually contains two individual IR-barriers whose direction is indicatied by the chevrons on the PCB. Two IR-barriers are used to increase confidence in mouse detections as opposed to a singel IR-barrier which can be triggered by mouse-tail passing through the barrier. Signals from both IR-barriers are available at the hive module.
+IR-barriers with a solder bridge enable the use of the two perpendicular IR LEDs which are only needed for the door module.
 
 # Experimenter Guide
 
@@ -32,17 +41,18 @@ PCB fab, Soldering, 3D printing, Acrylic tubes etc.
 Bilder...
 
 ## Installation
-module testing (solo?)
+module testing
 
 
-##### This is a work in progress, documentation and functionality is still in the procress of being fine-tuned and experimentally validated
+##### This is a work in progress, documentation and functionality are still in the process of being fine-tuned and experimentally validated
+A publication for the ModMoPSS with experimental validation is in the works.
 
 For further information don't hesitate to contact us.
 
 See also: \
-https://github.com/RefinementReferenceCenter/Modular-MoPSS-Hardware \
-https://github.com/RefinementReferenceCenter/Modular-MoPSS-RFID \
-https://github.com/RefinementReferenceCenter/Modular-MoPSS-Door 
+https://github.com/RefinementReferenceCenter/Modular-MoPSS-Hardware (PCB and fabrication, 3D-print models)\
+https://github.com/RefinementReferenceCenter/Modular-MoPSS-RFID (RFID-module code)\
+https://github.com/RefinementReferenceCenter/Modular-MoPSS-Door (Door-module code)
 
 ##### Relevant papers
 Rating enrichment items by female group-housed laboratory mice in multiple binary choice tests using an RFID-based tracking system. http://doi.org/10.1371/journal.pone.0278709 \
