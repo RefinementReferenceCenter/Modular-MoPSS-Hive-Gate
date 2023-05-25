@@ -1,7 +1,7 @@
 # The Modular Mouse Position Surveillance System (ModMoPSS)
 The Modular Mouse Position Surveillance System is an open source behavioral experimentation platform (for mice). The System provides Hardware and software for surveillance tasks via infrared light barriers and RFID tracking (with body temperature recording) and control tasks with the implementation of doors.
 
-Due to the flexibility of the modMoPSS, multiple RFID and Stepper modules can be employed to any functions beyond moving doors. It is also easily possible to develop additional modules as all PCB files and the complete code is open source.
+Due to the flexibility of the modMoPSS, multiple RFID- and door-modules can be employed to any functions beyond moving doors and tracking tasks. It is also easily possible to develop additional modules as all PCB files and the complete code is open source.
 
 ## Modular MoPSS Main Controller Unit
 
@@ -24,8 +24,8 @@ In this specific setup we are using four IR-barriers, two fans, one RFID-module 
 The limit in software is >200 individual Modules (I²C address limitation) however current capabilities of the power supply unit and current carrying capabilities of the PCBs must be considered and when necessary adapted. 
 
 ### RFID Antenna placement and setup
-RFID antennas need to be placed at an appropriate distance from metal objects to avoid detuning the antenna. During boot-up the resonant frequency is checked and the user will be alerted via the display of the measured resonant frequency and additional input is required if the antenna is too severely out of tune. The standard configuration of tuning capacitors in the design files is optimized towards an Antenna in free air. If the antenna is mounted near a metal object, e.g. a water bottle or the metal lid, the variable tuning capacitor on the PCB can be used to correct the resonant frequency. However it might be the case that additional capacitors have to be soldered to the board to achieve proper tuning.
-Another source for malfunction is interference from other antennas. Antennas that are close together and on the same axis (e.g. the gate) the antennas have to be turned on and off alternately. This is the standard setting and happens at 100ms intervals.
+RFID antennas need to be placed at an appropriate distance from metal objects to avoid detuning the antenna. During boot-up the resonant frequency is checked and the user will be alerted via the display of the measured resonant frequency and additional input is required if the antenna is too severely out of tune. The standard configuration of tuning capacitors in the design files is optimized towards an Antenna in free air. If the antenna is mounted near a metal object, e.g. a water bottle or the metal lid, the variable tuning capacitor on the PCB can be used to correct the resonant frequency. However it might be the case that additional capacitors have to be soldered to the board to achieve proper tuning. /
+Care has to be taken to avoid interference from other antennas. Antennas that are close together and on the same axis (e.g. the gate) will produce interference and prevent successful RFID tag reads. To prevent this, the antennas have to be turned on and off alternately. This is the standard setting and happens at 100ms intervals.
 
 ### Door module setup
 The door module uses two infrared light barriers as positional feedback for the door. During startup these IR barriers are used to calibrate door movement distance (stepper step count). Standard configuration uses the upper IR barrier to determine that the door is fully open and the calibrated step count during down movent to assure closing. This is necessary as mice like to bite into the door and by pulling on it causing the stepper motor to skip steps which in turn means loss of absolute position which is then reestablished via the IR barriers. 
@@ -44,8 +44,8 @@ Bilder...
 module testing
 
 
-##### This is a work in progress, documentation and functionality are still in the process of being fine-tuned and experimentally validated
-A publication for the ModMoPSS with experimental validation is in the works.
+## This is a work in progress, documentation and functionality are still in the process of being fine-tuned and experimentally validated
+### A publication for the ModMoPSS with experimental validation is in the works.
 
 For further information don't hesitate to contact us.
 
