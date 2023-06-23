@@ -11,14 +11,15 @@ A6,A7   - X6
 A8,A9   - X7
 D3,D2   - X8
 
-- multi-purpose 3-pin connectors (+12V|GND|Signal)
-D29 - J1  fan 1 
-D28 - J2  fan 2
-D33 - J3
+- multi-purpose 3-pin connectors (Signal|GND|+12V)
 D9  - J4
 D8  - J5
 D7  - J6
 D6  - J7
+
+- fan-connectors 2-pin, 12V transistor-switched (GND|+12V)
+D29 - F1
+D28 - F2
 
 D32 - ERR LED   Error LED, used for various error states
 D31 - STAT LED  Status LED, can be used to signal stuff
