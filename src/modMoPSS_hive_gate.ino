@@ -49,6 +49,34 @@ _______/                  |-----   X cm  -----|                  \________
 #include <SdFat.h>    //Access SD Cards
 #include <U8g2lib.h>  //for SSD1306 OLED Display
 
+void callback()
+{
+    SNVS_HPSR |= 0b11;              // reset interrupt flag
+    digitalToggleFast(31); // toggle a pin to generate the pps signal
+    asm("dsb");                     // wait until flag is synced over the busses to prevent double calls of the isr
+}
+
+void setupRTCInterrupt()
+{
+    // disable periodic interrupt
+    SNVS_HPCR &= ~SNVS_HPCR_PI_EN;
+    while ((SNVS_HPCR & SNVS_HPCR_PI_EN)) {} //The RTC is a slow peripheral, need to spin until PI_EN is reset...
+
+    // set interrupt frequency to 2Hz / 0.5s
+    SNVS_HPCR = SNVS_HPCR_PI_FREQ(0b1110);  // change to 0b1111 if you need a 1s interrupt
+
+    // enable periodic interrupt
+    SNVS_HPCR |= SNVS_HPCR_PI_EN;
+    while (!(SNVS_HPCR & SNVS_HPCR_PI_EN)) {} // spin until PI_EN is set...
+
+    // attach a callback
+    attachInterruptVector(IRQ_SNVS_IRQ, callback);
+    NVIC_SET_PRIORITY(IRQ_SNVS_IRQ, 16); // some priority 0-255 (low number = high priority)
+    NVIC_ENABLE_IRQ(IRQ_SNVS_IRQ);
+}
+
+
+
 //----- declaring variables ----------------------------------------------------
 //Current Version of the program
 const char SOFTWARE_REV[] = "v1.0.0";
@@ -210,6 +238,8 @@ uint16_t transition_delay = 3000; //ms
 //time until fan1 is turned on
 const uint16_t fan1delay = 30000; //ms door 1 open and until fan1 is turned on
 
+int ms;
+
 //##############################################################################
 //#####   S E T U P   ##########################################################
 //##############################################################################
@@ -222,6 +252,10 @@ void setup(){
   //----- Extra Variable setup -------------------------------------------------
   door_open[HCdoor] = 0;
   door_open[TCdoor] = 0;
+
+  pinMode(31,OUTPUT);
+
+  setupRTCInterrupt();
 
   //----- communication --------------------------------------------------------
   //start Serial communication
@@ -262,30 +296,6 @@ void setup(){
   uint8_t RFIDmodulestate = 0;
   int32_t reader1_freq = 0;
   int32_t reader2_freq = 0;
-  while(RFIDmodulestate == 0){
-    OLEDprint(0,0,1,1,">>> RFID Setup <<<");
-    OLEDprint(1,0,0,1,"reader 1:");
-    OLEDprint(2,0,0,1,"reader 2:");
-    reader1_freq = fetchResFreq(reader1);
-    OLEDprintFraction(2,10,0,1,(float)reader1_freq/1000,3);
-    OLEDprint(1,17,0,1,"kHz");
-    reader2_freq = fetchResFreq(reader2);
-    OLEDprintFraction(2,10,0,1,(float)reader2_freq/1000,3);
-    OLEDprint(2,17,0,1,"kHz");
-
-    if((abs(reader1_freq - 134200) >= 1000) || (abs(reader2_freq - 134200) >= 1000)){
-      OLEDprint(4,0,0,1,"Antenna detuned!");
-      OLEDprint(5,0,0,1,"CONFIRM");
-      OLEDprint(5,14,0,1,"REPEAT");
-      uint8_t buttonpress = getButton();
-      if(buttonpress == 1) RFIDmodulestate = 1;
-    }
-    else{
-      OLEDprint(5,0,0,1,"-Done");
-      delay(1000);  //to give time to actually read the display
-      RFIDmodulestate = 1;
-    }
-  }
   
   //----- Setup SD Card --------------------------------------------------------
   //Stop program if uSDs are not detected/faulty (needs to be FAT/FAT32/exFAT format)
@@ -377,40 +387,6 @@ void setup(){
 
   dataFileBackup.flush();
   
-  //----- Setup Doors ----------------------------------------------------------
-  OLEDprint(0,0,1,1,">>> Door Setup <<<");
-  while(getDoorModuleStatus(doorMod1)) delay(250); //wait for calibration to finish
-  OLEDprint(1,0,0,1,"-Done");
-  delay(1000); //small delay before clearing display in next step
-  
-  //---- setup experiment ------------------------------------------------------
-  //Move both doors up for habituation phase 1
-  if(habituation_phase == 1){
-    moveDoor(doorMod1,HCdoor,up); //open HCdoor
-    moveDoor(doorMod1,TCdoor,up); //open TCdoor
-    while(getDoorModuleStatus(doorMod1)) delay(250); //while busy wait for move to finish
-    door_open[HCdoor] = 1;
-    door_open[TCdoor] = 1;
-  }
-  //transitionmanagement habituation phase 3
-  if(habituation_phase == 3){
-    //ensure both doors start in open position
-    moveDoor(doorMod1,HCdoor,up); //open HCdoor
-    moveDoor(doorMod1,TCdoor,up); //open TCdoor
-    while(getDoorModuleStatus(doorMod1)) delay(250); //while busy wait for move to finish
-    door_moving[HCdoor] = 0;  //set manually here since only updated in loop
-    door_moving[TCdoor] = 0;
-    door_open[HCdoor] = 1;
-    door_open[TCdoor] = 1;
-
-    moveDoor(doorMod1,TCdoor,down); //close TCdoor
-    while(getDoorModuleStatus(doorMod1)) delay(250);
-    door_moving[HCdoor] = 0;
-    door_moving[TCdoor] = 0;
-    door_open[TCdoor] = 0;
-
-    tm_state = 0x1A;  //start in state 1A
-  }
 } //end of setup
 
 //##############################################################################
@@ -421,392 +397,6 @@ void loop(){
   //create/clear strings that get written to uSD card
   String RFIDdataString = ""; //holds tag and date
   String SENSORDataString = ""; //holds various sensor and diagnostics data
-  
-  //----------------------------------------------------------------------------
-  //record RFID tags -----------------------------------------------------------
-  //----------------------------------------------------------------------------
-  //>=80ms are required to cold-start a tag for a successful read (at reduced range)
-  //>=90ms for full range, increasing further only seems to increase range due to noise
-  //rather than requirements of the tag and coil for energizing (100ms is chosen as a compromise)
-  
-  if(RFIDmode == 1){  //alternately switch between both readers
-    if((millis() - RFIDtime) >= 100){
-      RFIDtime = millis();
-      
-      if(RFIDtoggle == 1){
-        RFIDtoggle = 0; //toggle the toggle
-        switchReaders(reader2,reader1); //enable reader2, disable reader1
-        tag1_present = fetchtag(reader1, 1); //fetch data reader1 collected during on-time saved in variable: tag
-        reader1_cycle = 1;  //flag reader 1 is being read
-        for(uint8_t i = 0; i < sizeof(tag); i++) currenttag1[i] = tag[i]; //copy received tag to current tag
-        //compare current and last tag 0 = no change, 1 = new tag entered, 2 = switch (two present successively), 3 = tag left
-        uint8_t tag1_switch = compareTags(currenttag1,lasttag1);
-        RFIDdataString = createRFIDDataString(currenttag1, lasttag1, tag1_present, tag1_switch, "R1"); //create datastring that is written to uSD
-        for(uint8_t i = 0; i < sizeof(currenttag1); i++) lasttag1[i] = currenttag1[i]; //copy currenttag to lasttag
-      }
-      else{
-        RFIDtoggle = 1; //toggle the toggle
-        switchReaders(reader1,reader2); //enable reader1, disable reader2
-        tag2_present = fetchtag(reader2, 1); //fetch data reader2 collected during on-time saved in variable: tag
-        reader2_cycle = 1;
-        for(uint8_t i = 0; i < sizeof(tag); i++) currenttag2[i] = tag[i]; //copy received tag to current tag
-        //compare current and last tag 0 = no change, 1 = new tag entered, 2 = switch (two present successively), 3 = tag left
-        uint8_t tag2_switch = compareTags(currenttag2,lasttag2);
-        RFIDdataString = createRFIDDataString(currenttag2, lasttag2, tag2_present, tag2_switch, "R2"); //create datastring that is written to uSD
-        for(uint8_t i = 0; i < sizeof(currenttag2); i++) lasttag2[i] = currenttag2[i]; //copy currenttag to lasttag
-      }
-    }
-  }
-  if(RFIDmode == 2){ //enable only reader1
-    if(RFIDmode_firstrun == 1){ //dis/enable correct readers on first run/startup
-      RFIDmode_firstrun = 0;
-      enableReader(reader1);
-      disableReader(reader2);
-    }
-    //poll for tag reads every x ms
-    if((millis() - RFIDtime) >= 100){
-      RFIDtime = millis();
-      tag1_present = fetchtag(reader1, 0); //fetch tag
-      for(uint8_t i = 0; i < sizeof(tag); i++) currenttag1[i] = tag[i]; //copy received tag to current tag
-      //compare current and last tag 0 = no change, 1 = new tag entered, 2 = switch (two present successively), 3 = tag left
-      uint8_t tag1_switch = compareTags(currenttag1, lasttag1);
-      RFIDdataString = createRFIDDataString(currenttag1, lasttag1, tag1_present, tag1_switch, "R1s"); //create datastring that is written to uSD
-      for(uint8_t i = 0; i < sizeof(currenttag1); i++) lasttag1[i] = currenttag1[i]; //copy currenttag to lasttag
-    }
-  }
-  if(RFIDmode == 3){ //enable only reader2
-    if(RFIDmode_firstrun == 1){ //dis/enable correct readers on first run/startup
-      RFIDmode_firstrun = 0;
-      enableReader(reader2);
-      disableReader(reader1);
-    }
-    //poll for tag reads every x ms
-    if((millis() - RFIDtime) >= 100){
-      RFIDtime = millis();
-      tag2_present = fetchtag(reader2, 0); //fetch tag
-      for(uint8_t i = 0; i < sizeof(tag); i++) currenttag2[i] = tag[i]; //copy received tag to current tag
-      //compare current and last tag 0 = no change, 1 = new tag entered, 2 = switch (two present successively), 3 = tag left
-      uint8_t tag2_switch = compareTags(currenttag2,lasttag2);
-      RFIDdataString = createRFIDDataString(currenttag2, lasttag2, tag2_present, tag2_switch, "R2s"); //create datastring that is written to uSD
-      for(uint8_t i = 0; i < sizeof(currenttag2); i++) lasttag2[i] = currenttag2[i]; //copy currenttag to lasttag
-    }
-  }
-  
-  //----------------------------------------------------------------------------
-  //check tags of RFID readers -------------------------------------------------
-  //----------------------------------------------------------------------------
-  //check current tag against mouse_library, every read cycle if tag present
-  //--- Reader 1 ---
-  if(reader1_cycle && tag1_present){ 
-    reader1_cycle = 0;
-    //check current tag against library
-    current_mouse1 = 0;
-    for(uint8_t h = 1; h < mice; h++){ //iterate through all tags
-      uint8_t tc = 0;
-      for(uint8_t i = 0; i < sizeof(currenttag1); i++){ //compare byte by byte
-        if(currenttag1[i] == mouse_library[h][i]) tc++;
-        else break; //stop comparing current tag at first mismatch
-      }
-      if(tc == 6){ //if all 6 bytes are identical, matching tag found
-        current_mouse1 = h; //assign detected mouse to variable, mouse 0 is no detection
-        break;  //stop looking after first match
-      }
-    }
-    time_t nowtime = now();
-    if(current_mouse1 > 0) mice_visits[current_mouse1][1]++;
-  }
-  
-  //--- Reader 2 ---
-  if(reader2_cycle && tag2_present){
-    reader2_cycle = 0;
-    //check current tag against library
-    current_mouse2 = 0;
-    for(uint8_t h = 1; h < mice; h++){ //iterate through all tags
-      uint8_t tc = 0;
-      for(uint8_t i = 0; i < sizeof(currenttag2); i++){ //compare byte by byte
-        if(currenttag2[i] == mouse_library[h][i]) tc++;
-        else break; //stop comparing current tag at first mismatch
-      }
-      if(tc == 6){ //if all 6 bytes are identical, matching tag found
-        current_mouse2 = h; //assign detected mouse to variable, mouse 0 is no detection
-        break;  //stop looking after first match
-      }
-    }
-    time_t nowtime = now();
-    if(current_mouse2 > 0) mice_visits[current_mouse2][1]++;
-  }
-  
-  //----------------------------------------------------------------------------
-  //read IR sensors periodically -----------------------------------------------
-  //----------------------------------------------------------------------------
-  if((millis() - IRsensor_time) >= 50){ //multiply with buffer size for buffer length ~96us
-    IRsensor_time = millis();
-
-    //write sensor values to buffer
-    IR1_buffer[0][sb] = digitalRead(IR1[0]);  //door 1
-    IR1_buffer[1][sb] = digitalRead(IR1[1]); 
-    IR2_buffer[0][sb] = digitalRead(IR2[0]);  //door 2
-    IR2_buffer[1][sb] = digitalRead(IR2[1]); 
-    IR3_buffer[0][sb] = digitalRead(IR3[0]);  //middle left
-    IR3_buffer[1][sb] = digitalRead(IR3[1]); 
-    IR4_buffer[0][sb] = digitalRead(IR4[0]);  //middle right
-    IR4_buffer[1][sb] = digitalRead(IR4[1]); 
-
-    //calculate buffer sums i.e. times IR sensor was interrupted
-    IR1_cbuffer_sum = 0;
-    IR2_cbuffer_sum = 0;
-    IR3_cbuffer_sum = 0;
-    IR4_cbuffer_sum = 0;
-    IR34_cbuffer_sum = 0;
-
-    //calculate all buffer sums and coincidence (both IR at the same time interrupted)
-    for(uint8_t i = 0; i < buffer_reads; i++){ //50 reads = 2.5s
-      if(IR1_buffer[0][i] && IR1_buffer[1][i]) IR1_cbuffer_sum ++;
-      if(IR2_buffer[0][i] && IR2_buffer[1][i]) IR2_cbuffer_sum ++;
-      if(IR3_buffer[0][i] && IR3_buffer[1][i]) IR3_cbuffer_sum ++;
-      if(IR4_buffer[0][i] && IR4_buffer[1][i]) IR4_cbuffer_sum ++;
-      if(IR3_buffer[0][i] && IR3_buffer[1][i] && IR4_buffer[0][i] && IR4_buffer[1][i]) IR34_cbuffer_sum ++;
-    }
-    IR_middle_csum = IR3_cbuffer_sum + IR4_cbuffer_sum; //sum of individual middle buffers
-
-    sb++; //count up buffer position, start again at 0 if end of array is reached
-    if(sb >= buffer_reads) sb = 0;
-
-    //debug only, print buffer (all)
-    if((IR1_cbuffer_sum + IR2_cbuffer_sum + IR3_cbuffer_sum + IR4_cbuffer_sum) > 0){
-      if((debug>=1)&&(sb%25==0)){
-        SENSORDataString=createSENSORDataString("IRB",String(IR1_cbuffer_sum)+"|"+String(IR2_cbuffer_sum)+":"+String(IR3_cbuffer_sum)+"-"+String(IR4_cbuffer_sum)+":"+String(IR34_cbuffer_sum),SENSORDataString);
-        Serial.println(String(IR1_cbuffer_sum)+"|"+String(IR2_cbuffer_sum)+":"+String(IR3_cbuffer_sum)+"-"+String(IR4_cbuffer_sum)+":"+String(IR34_cbuffer_sum));
-      }
-    }
-  }
-  
-  //----------------------------------------------------------------------------
-  //read door status on demand -------------------------------------------------
-  //----------------------------------------------------------------------------
-  //if one of the two doors is moving and time since last check is x ms, check again
-  //--- Homecage Door ---
-  if(door_moving[HCdoor] && (millis() - door_poll_time[HCdoor] >= 200)){
-    door_poll_time[HCdoor] = millis();
-
-    door_moving[HCdoor] = getDoorModuleStatus(doorMod1) & 0b01;
-    
-    if(!door_moving[HCdoor]){ //if it stopped moving update status
-        door_open[HCdoor] = !door_open[HCdoor];
-      if(door_open[HCdoor]){ //door has finished movement and is now OPEN
-        SENSORDataString = createSENSORDataString("D1","opened",SENSORDataString);
-      }
-      else{ //door has finished movement and is now CLOSED
-        SENSORDataString = createSENSORDataString("D1","closed",SENSORDataString);
-      }
-    }
-  }
-  //--- Testcage Door ---
-  if(door_moving[TCdoor] && (millis() - door_poll_time[TCdoor] >= 200)){
-    door_poll_time[TCdoor] = millis();
-
-    door_moving[TCdoor] = getDoorModuleStatus(doorMod1) & 0b10;
-
-    if(!door_moving[TCdoor]){ //if it stopped moving update status
-      door_open[TCdoor] = !door_open[TCdoor];
-      if(door_open[TCdoor]){ //door has finished movement and is now OPEN
-        SENSORDataString = createSENSORDataString("D2","opened",SENSORDataString);
-      }
-      else{ //door has finished movement and is now CLOSED
-        SENSORDataString = createSENSORDataString("D2","closed",SENSORDataString);
-      }
-    }
-  }
-  
-  //----------------------------------------------------------------------------
-  //door management for phase 0 (PANIC) ----------------------------------------
-  //----------------------------------------------------------------------------
-  if(habituation_phase == 0){
-    moveDoor(doorMod1,HCdoor,up); //try opening doors
-    SENSORDataString = createSENSORDataString("D1", "Panic Opening", SENSORDataString); //generate datastring
-    moveDoor(doorMod1,TCdoor,up); //try opening doors
-    SENSORDataString = createSENSORDataString("D2", "Panic Opening", SENSORDataString); //generate datastring
-    door_moving[HCdoor] = 0; //set flag, door is not moving so any further checking on the doors is omitted
-    door_moving[TCdoor] = 0;
-    habituation_phase = 9; //exit out of habituation phase 0 so RFID readers etc. will continue to work
-  }
-
-  //----------------------------------------------------------------------------
-  //door management for phase 1 ------------------------------------------------
-  //----------------------------------------------------------------------------
-  if(habituation_phase == 1){ //both doors are open
-    //nothing to do here
-  } //end habituation phase 1
-
-  //----------------------------------------------------------------------------
-  //door management for phase 3 ------------------------------------------------
-  //----------------------------------------------------------------------------
-  if(habituation_phase == 3){
-    //--- state 1 - D1 open, D2 closed, mouse can enter towards tc, or leave towards hc
-    if(!door_moving[HCdoor] && !door_moving[TCdoor]){ //advance transitionmanagement only when doors are not moving
-      //if failsave for double mouse triggered
-      if((tm_state == 0x1A || tm_state == 0x1B) && doublemouseflag){
-        tm_state = 0xFA;
-        SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
-        tm_state_restart = 0x3B;
-        SENSORDataString = createSENSORDataString("TMr",String(tm_state_restart,HEX),SENSORDataString);
-      }
-      //state 0x1A move towards tc
-      if((tm_state == 0x1A) && IR4_cbuffer_sum){
-        moveDoor(doorMod1,HCdoor,down); //close door
-        SENSORDataString = createSENSORDataString("D1", "closing", SENSORDataString);
-        tm_state = 0x2A;
-        SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
-      }
-      //state 0x1B move towards hc
-      if(tm_state == 0x1B){
-        if(millis() - door_stop_time[HCdoor] >= door_stays_open_min){
-          tm_state = 0x1A;
-          SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString); //HCdoor is kept open to allow mouse to exit
-        }
-      }
-    }
-    //--- state 2 - D1 closed, D2 closed, mouse is in middle and transitions towards hc or tc
-    if(!door_moving[HCdoor] && !door_moving[TCdoor]){ //advance transitionmanagement only when doors are not moving
-      //state 0x2A transit towards tc
-      if(tm_state == 0x2A){
-        if(millis() - door_stop_time[HCdoor] >= transition_delay){
-          if(!IR_middle_csum){ //no mouse in middle (formerly individual IRs, not coincidence)
-            moveDoor(doorMod1,HCdoor,up);
-            SENSORDataString = createSENSORDataString("D1", "opening", SENSORDataString);
-            tm_state = 0x1A;
-            SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
-          }
-          else{ //check multimice/mouse ident that requires clearing of middle
-            uint8_t go = 1;
-            if(IR34_cbuffer_sum >= 20){ //all IRs in the middle are triggered
-              go = 0; //multimice detection
-              SENSORDataString = createSENSORDataString("MM","multimice",SENSORDataString);
-            }
-            if(doublemouseflag) go = 0; //treat double mouse same as multimice with different restart state
-            //if(!mouse_ident) go = 0;
-            if(go){
-              moveDoor(doorMod1,TCdoor,up); //open door
-              SENSORDataString = createSENSORDataString("D2", "opening", SENSORDataString);
-              tm_state = 0x3A;
-              SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
-              tc_occupied = 1;
-              SENSORDataString = createSENSORDataString("TC","occupied",SENSORDataString); //testcage is now occupied
-            }
-            else{
-              tm_state = 0xFA;  //go to failsave state where tube needs to be empty
-              SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
-              tm_state_restart = 0x1A;
-              if(doublemouseflag) tm_state_restart = 0x3B;
-              SENSORDataString = createSENSORDataString("TMr",String(tm_state_restart,HEX),SENSORDataString);
-            }
-          }
-        }
-      }
-      //state 0x2B transit towards hc
-      if(tm_state == 0x2B){
-        if(millis() - door_stop_time[TCdoor] >= transition_delay){
-          uint8_t go = 1;
-          if(!IR_middle_csum) go = 0;
-          if(go){
-            moveDoor(doorMod1,HCdoor,up); //open door
-            SENSORDataString = createSENSORDataString("D1", "opening", SENSORDataString);
-            tm_state = 0x1B;
-            SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
-            tc_occupied = 0;
-            SENSORDataString = createSENSORDataString("TC","empty",SENSORDataString);} //testcage is no longer occupied
-          else{
-            moveDoor(doorMod1,TCdoor,up); //open door
-            SENSORDataString = createSENSORDataString("D2", "opening", SENSORDataString); //maximum logging
-            tm_state = 0x3B;
-            SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
-          }
-        }
-      }
-    }
-    //--- state 3 - D1 closed, D2 open, mouse can leave towards tc, or enter from tc
-    if(!door_moving[HCdoor] && !door_moving[TCdoor]){ //advance transitionmanagement only when doors are not moving
-      //state 0x3B move towards hc
-      if((tm_state == 0x3B) && IR3_cbuffer_sum){
-        moveDoor(doorMod1,TCdoor,down); //close door, state = 0x2B after door movement
-        SENSORDataString = createSENSORDataString("D2", "closing", SENSORDataString); //maximum logging
-        tm_state = 0x2B;
-        SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
-      }
-      //state 0x3A move towards tc
-      if(tm_state == 0x3A){
-        if(millis() - door_stop_time[TCdoor] >= door_stays_open_min){
-          tm_state = 0x3B;
-          SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
-        }
-      }
-    }
-
-    //Failsaves ------------------------------------------------------------------
-    //unified fail recovery state
-    if(tm_state == 0xFA){ //quickly open HCdoor
-      moveDoor(doorMod1,HCdoor,up);
-      SENSORDataString = createSENSORDataString("D1", "opening FS", SENSORDataString);
-      tm_state = 0xFB;
-      SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
-    }
-    if(tm_state == 0xFB && !door_moving[HCdoor]){ //when HCdoor open, turn on fans
-      fan1on = 1;
-      fan2on = 1;
-      digitalWrite(fan1,HIGH);
-      digitalWrite(fan2,HIGH);
-      SENSORDataString = createSENSORDataString("FAN","fan1 on",SENSORDataString);
-      SENSORDataString = createSENSORDataString("FAN","fan2 on",SENSORDataString);
-      tm_state = 0xFC;
-      SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
-    }
-    if(tm_state == 0xFC && !IR_middle_csum && !IR1_cbuffer_sum){ //if middle and front is empty, try closing HCdoor
-      moveDoor(doorMod1,HCdoor,down);
-      SENSORDataString = createSENSORDataString("D1", "closing FS", SENSORDataString);
-      tm_state = 0xFD;
-      SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
-    }
-    if(tm_state == 0xFD && !door_moving[HCdoor]){ //when door finished moving, turn off fan
-      if(!IR_middle_csum){ //make sure a mouse didn't sneak in during door closing
-        fan1on = 0;
-        fan2on = 0;
-        digitalWrite(fan1,LOW);
-        digitalWrite(fan2,LOW);
-        SENSORDataString = createSENSORDataString("FAN","fan1 off",SENSORDataString);
-        SENSORDataString = createSENSORDataString("FAN","fan2 off",SENSORDataString);
-        tm_state = tm_state_restart;
-        if(tm_state == 0x1A){
-          moveDoor(doorMod1,HCdoor,up);
-          SENSORDataString = createSENSORDataString("D1", "opening FS", SENSORDataString);
-        }
-        if(tm_state == 0x3B){
-          moveDoor(doorMod1,TCdoor,up);
-          SENSORDataString = createSENSORDataString("D2", "opening FS", SENSORDataString);
-          doublemouseflag = 0;
-        }
-      }
-      else{
-        tm_state = 0xFA; //start again by emptying middle tube
-        SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
-      }
-    }
-
-    //FAILSAFE blocked HCdoor, empty tube if HCdoor is open for too long
-    if((tm_state < 0xFA) && door_moving[HCdoor] && (millis() - door_move_time[HCdoor] >= fan1delay)){
-      SENSORDataString = createSENSORDataString("FS1","doorblocked",SENSORDataString);
-      tm_state = 0xFA;
-      SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
-      tm_state_restart = 0x1A;
-      SENSORDataString = createSENSORDataString("TMr",String(tm_state_restart,HEX),SENSORDataString);
-    }
-    //FAILSAFE >1 mouse in TC, 1 second minimum to avoid trigger by tail from transitioning mouse
-    if(!tc_occupied && (IR2_cbuffer_sum >= 20)){
-      doublemouseflag = 1;
-      SENSORDataString = createSENSORDataString("FS2","doublemouse",SENSORDataString);
-      tc_occupied = 1;
-      SENSORDataString = createSENSORDataString("TC","occupied FS",SENSORDataString);
-    }
-  } //end habituation phase 3
   
   //----------------------------------------------------------------------------
   //update display -------------------------------------------------------------
@@ -841,54 +431,6 @@ void loop(){
       //display current time from RTC and date
       OLEDprint(0,0,0,0,nicetime(rtctime));
       OLEDprint(0,11,0,0,nDate);
-
-      //display info on door status and TC status
-      OLEDprint(1,0,0,0,"D1:");
-      if(door_open[HCdoor] && !door_moving[HCdoor]) OLEDprint(1,3,0,0,"Open");
-      if(door_open[HCdoor] && door_moving[HCdoor]) OLEDprint(1,3,0,0,"Closing");
-      if(!door_open[HCdoor] && !door_moving[HCdoor]) OLEDprint(1,3,0,0,"Closed");
-      if(!door_open[HCdoor] && door_moving[HCdoor]) OLEDprint(1,3,0,0,"Opening");
-
-      OLEDprint(1,10,0,0,"D2:");
-      if(door_open[TCdoor] && !door_moving[TCdoor]) OLEDprint(1,13,0,0,"Open");
-      if(door_open[TCdoor] && door_moving[TCdoor]) OLEDprint(1,13,0,0,"Closing");
-      if(!door_open[TCdoor] && !door_moving[TCdoor]) OLEDprint(1,13,0,0,"Closed");
-      if(!door_open[TCdoor] && door_moving[TCdoor]) OLEDprint(1,13,0,0,"Opening");
-
-      OLEDprint(2,0,0,0,"TC occupied:");
-      if(tc_occupied) OLEDprint(2,13,0,0,"Yes");
-      else OLEDprint(2,13,0,0,"No");
-
-      //print current IR barrier states
-      OLEDprint(3,0,0,0,"IR:");
-      OLEDprint(3,4,0,0,IR1_cbuffer_sum);
-      OLEDprint(3,7,0,0,IR2_cbuffer_sum);
-      OLEDprint(3,10,0,0,IR3_cbuffer_sum);
-      OLEDprint(3,13,0,0,IR4_cbuffer_sum);
-      OLEDprint(3,16,0,0,IR34_cbuffer_sum);
-
-      //print transition management state
-      OLEDprint(4,0,0,0,"TM state:");
-      OLEDprint(4,10,0,0,String(tm_state,HEX));
-
-      // //Print a letter for each mouse and activity histogram for last 24h
-      // String letters = "ABCDEFGHIJKL";
-      // for(uint8_t i = 0;i < 12;i++){
-      //   oled.setCursor(i*10,63);
-      //   oled.print(letters[i]);
-      // }
-      // //clip values
-      // for(uint8_t i = 0;i < 12;i++){
-      //   if(mice_visits[i+1][1] > 500) mice_visits[i+1][1] = 500;
-      //   if(mice_visits[i+1][2] > 500) mice_visits[i+1][2] = 500;
-      // }
-      // for(uint8_t i = 0;i < 12;i++){
-      //   oled.drawLine(i*10,52,i*10,52-(mice_visits[i+1][1]/50));     //x y x y Reader 1
-      //   oled.drawLine(i*10+1,52,i*10+1,52-(mice_visits[i+1][1]/50)); //x y x y 2 pixel wide
-      
-      //   oled.drawLine(i*10+3,52,i*10+3,52-(mice_visits[i+1][2]/50)); //x y x y Reader 2
-      //   oled.drawLine(i*10+4,52,i*10+4,52-(mice_visits[i+1][2]/50)); //x y x y 2 pixel wide
-      // }
 
       //update display
       oled.sendBuffer();
