@@ -1,5 +1,5 @@
 /*------------------------------------------------------------------------------
-- PJRC Teensy 4.1 (with ethernet) pin mapping - Hardware Revision v7.0
+- PJRC Teensy 4.1 (with ethernet) pin mapping - Hardware Revision v7.1
 
 - dual-infrared lightbarrier connectors (S|S|GND|+12V)
 D36,D37 - X1 infrared barrier 1
@@ -18,8 +18,8 @@ D7  - J6
 D6  - J7
 
 - fan-connectors 2-pin, 12V transistor-switched (GND|+12V)
-D29 - F1
-D28 - F2
+D29 - F1 Fan 1
+D28 - F2 Fan 2
 
 D32 - ERR LED   Error LED, used for various error states
 D31 - STAT LED  Status LED, can be used to signal stuff
