@@ -49,54 +49,29 @@ _______/                  |-----   X cm  -----|                  \________
 #include <U8g2lib.h>  //for SSD1306 OLED Display
 #include <QNEthernet.h>
 
+using namespace qindesign::network;
+
+constexpr uint32_t kDHCPTimeout = 15'000;  // 15 seconds
+constexpr uint16_t kNTPPort = 123;
+// 01-Jan-1900 00:00:00 -> 01-Jan-1970 00:00:00
+constexpr uint32_t kEpochDiff = 2'208'988'800;
+// Epoch -> 07-Feb-2036 06:28:16
+constexpr uint32_t kBreakTime = 2'085'978'496;
+
+// UDP port.
+EthernetUDP udp;
+// Buffer.
+uint8_t buf[48];
+
 //----- declaring variables ----------------------------------------------------
 //Current Version of the program
 const char SOFTWARE_REV[] = "v1.0.0";
 
 //I2C addresses
-const uint8_t reader1 = 0x08;     //I2C address RFID module 1
-const uint8_t reader2 = 0x09;     //I2C address RFID module 2
-const uint8_t doorMod1 = 0x10;
-//const uint8_t turntable1 = 0x11;  //for future use
 const uint8_t oledDisplay = 0x78; //I2C address oled display
 
 //Buttons
 const int buttons = A13;  //~1022 not pressed, ~1 left, ~323 middle, ~711 right
-
-//Fans
-const int fan1 = 29;        //fan1
-const int fan2 = 28;        //fan2
-uint8_t fan1on = 0;         //fan1 state
-uint8_t fan2on = 0;         //fan2 state
-uint8_t cleardoorblock = 0; //to separate between different conditions that require a fan
-
-//IR Sensors
-const int IR1[2] = {36,37};
-const int IR2[2] = {A14,A15};
-const int IR3[2] = {A11,A10};
-const int IR4[2] = {A16,A17};
-
-//use volatile if interrupt based
-uint8_t IR1_trigd[2] = {0,0};
-uint8_t IR2_trigd[2] = {0,0};
-uint8_t IR3_trigd[2] = {0,0};
-uint8_t IR4_trigd[2] = {0,0};
-
-const uint8_t buffer_reads = 50;
-uint8_t IR1_buffer[2][buffer_reads] = {};
-uint8_t IR2_buffer[2][buffer_reads] = {};
-uint8_t IR3_buffer[2][buffer_reads] = {};
-uint8_t IR4_buffer[2][buffer_reads] = {};
-
-//coincidence buffer sum, only counts if both IR barriers are triggered simultaniously
-uint8_t IR1_cbuffer_sum = 0;
-uint8_t IR2_cbuffer_sum = 0;
-uint8_t IR3_cbuffer_sum = 0;
-uint8_t IR4_cbuffer_sum = 0;
-uint8_t IR34_cbuffer_sum = 0;
-uint8_t IR_middle_csum = 0; //contains the sum of the coincidence sums of IR3 IR4
-uint8_t sb = 0;             //sensor buffer counter
-uint32_t IRsensor_time;     //time when IR sensors 1,2,3,4 were last checked
 
 //LEDs
 const int errorLED = 32;
@@ -117,236 +92,332 @@ U8G2_SSD1306_128X64_NONAME_F_HW_I2C oled(U8G2_R0,U8X8_PIN_NONE,23,22); //def,res
 uint32_t displaytime = 0;         //stores millis to time display refresh
 uint8_t displayon = 1;            //flag to en/disable display
 
-//Stepper Modules
-uint8_t door_moving[2];           //moving
-uint8_t door_open[2];             //open or close
-uint32_t door_poll_time[2];       //time door module was last polled for status
-uint16_t door_speed[2];           //speed in us delay between steps
-uint16_t door_stays_open_min;     //minimum time a door will stay open for mouse to exit towards HC/TC
-uint32_t door_stop_time[2];       //time when a change in the tm state last happened. Used to track delays that should happen between different stages
-uint32_t door_move_time[2];       //time the door has started moving
-uint8_t tm_state;                 //transition management state
-uint8_t tm_state_restart = 0x1A;  //transition management restart state after failsafe
-uint8_t doublemouseflag;          //flag if a mouse is detected in the testcage, when it should be empty
-//uint8_t turntable_moving;  //placeholder for turntable
-
-//human readable door names
-const uint8_t HCdoor = 0;
-const uint8_t TCdoor = 1;
-//human readable names for door control
-const uint8_t top = 0;
-const uint8_t bottom = 1;
-const uint8_t up = 0;
-const uint8_t down = 1;
-//busy if door is still moving and the state of all attached IR barriers
-uint8_t door1_state[7];        //busy, tx1, tx2, rx1, rx2, top, bottom
-uint8_t door2_state[7];        //busy, tx1, tx2, rx1, rx2, top, bottom
-
-//RFID
-uint32_t RFIDtime;           //used to measure time before switching to next antenna
-uint8_t RFIDtoggle = 0;      //flag used to switch to next antenna
-
-uint8_t tag[6] = {};         //global variable to store returned tag data (limitation of C to return arrays)
-uint8_t tag1_present = 0;    //flag that indicates if tag was present during read cycle
-uint8_t tag2_present = 0;
-uint8_t reader1_cycle = 0;   //toggles flag if a read cycle has just happened (not automatically cleared)
-uint8_t reader2_cycle = 0;
-uint8_t currenttag1[6] = {}; //saves id of the tag that was read during the current read cycle
-uint8_t currenttag2[6] = {};
-uint8_t lasttag1[6] = {};    //saves id of the tag that was read during the previous read cycle
-uint8_t lasttag2[6] = {};
-
-uint8_t RFIDmode = 1;           //select mode to operate in: 1-alternate, 2-reader1, 3-reader2
-uint8_t RFIDmode_firstrun = 1;  //to make sure the correct reader is turned on/off
-
-//Experiment variables
-uint8_t tc_occupied = 0;   //flag that tracks occupation of test cage
-uint32_t starttime;        //start of programm
-uint32_t rtccheck_time;    //time the rtc was checked last
-
-//Mice tags
-const uint8_t mice = 15;           //number of mice in experiment (add 1 for mouse 0, add 2 for test-mice)
-const uint8_t mouse_library[mice][6] = {
-  {0x00,0x00,0x00,0x00,0x00,0x00}, //mouse 0
-  {0x73,0x74,0xF7,0x90,0x2E,0xE1}, //mouse 1  sw_si 1923
-  {0x7F,0x65,0x7F,0x90,0x2E,0xE1}, //mouse 2  ro_ge 8095
-  {0x40,0x73,0x7F,0x90,0x2E,0xE1}, //mouse 3  sw_ro 1616
-  {0x32,0x74,0x7F,0x90,0x2E,0xE1}, //mouse 4  we_sw 1858
-  {0xB8,0x74,0x7F,0x90,0x2E,0xE1}, //mouse 5  ro_we 1992
-  {0x18,0x6E,0x7F,0x90,0x2E,0xE1}, //mouse 6  sw_ge 0296
-  {0xAA,0x71,0x7F,0x90,0x2E,0xE1}, //mouse 7  we_si 1210
-  {0x6B,0x6E,0x7F,0x90,0x2E,0xE1}, //mouse 8  ro_si 0379
-  {0x0F,0x71,0x7F,0x90,0x2E,0xE1}, //mouse 9  sw_we 1055
-  {0x77,0x6F,0x7F,0x90,0x2E,0xE1}, //mouse 10 we_ge 0647
-  {0x91,0x64,0x7F,0x90,0x2E,0xE1}, //mouse 11 ro_sw 7857
-  {0x41,0x73,0x7F,0x90,0x2E,0xE1}, //mouse 12 we_ro 1617
-  {0xA1,0x82,0x42,0xDD,0x3E,0xF3}, //mouse 13 polymorphmaus
-  {0x0E,0x67,0xF7,0x90,0x2E,0xE1}};//mouse 14 bleistiftmaus
-
-uint8_t mice_visits[mice][2];      //contains the number of tag reads at reader 1 and 2 during the last 24 hours
-uint8_t current_mouse1 = 0;        //placeholder simple number for tag at reader 1
-uint8_t current_mouse2 = 0;        //placeholder simple number for tag at reader 2
-
-
-
-//ETHERNET
-using namespace qindesign::network;
-
-IPAddress ip{20,0,0,100};   // Unique IP
-IPAddress sn{255,255,255,0};  // Subnet Mask
-IPAddress gw{20,0,0,1};       // Default Gateway
-// Initialize the Ethernet server library with the IP address and port
-// to use.  (port 80 is default for HTTP):
-IPAddress sip{20,0,0,20};
-//EthernetServer server(8888);
-//EthernetClient client;
+int once = 2;
 
 //##############################################################################
 //#####   S E T U P   ##########################################################
 //##############################################################################
 void setup(){
-  //----- communication --------------------------------------------------------
-  //start Serial communication
-  Serial.begin(115200);
-  while(!Serial); //wait for serial connection
-
+  pinMode(statusLED,OUTPUT);
+  pinMode(errorLED,OUTPUT);
+  //----- Buttons & Fans -------------------------------------------------------
+  pinMode(buttons,INPUT);
+  pinMode(34,OUTPUT);
+ 
   //start I2C
   Wire.begin();
 
+  //----- communication --------------------------------------------------------
+  //start Serial communication
+
+  digitalWrite(errorLED,HIGH);
+
+  Serial.begin(115200);
+  while(!Serial); //wait for serial connection
+
+  digitalWrite(errorLED,LOW);
+
+  Serial.println("alive");
+
+  //----- Real Time Clock ------------------------------------------------------
+  //setSyncProvider(getTeensy3Time);
+
   //----- Ethernet -------------------------------------------------------------
   // start the Ethernet
+  
 
- // Initialize the library with a static IP so we can point a webpage to it
-  if (!Ethernet.begin(ip,sn,gw)) {
-    Serial.println("Failed to start Ethernet\n");
+  Serial.println("Starting...\r\n");
+  Serial.println("start");
+
+  uint8_t mac[6];
+  Ethernet.macAddress(mac);  // This is informative; it retrieves, not sets
+  Serial.printf("MAC = %02x:%02x:%02x:%02x:%02x:%02x\r\n",
+         mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+
+  Serial.printf("Starting Ethernet with DHCP...\r\n");
+  if (!Ethernet.begin()) {
+    Serial.printf("Failed to start Ethernet\r\n");
+    return;
+  }
+  if (!Ethernet.waitForLocalIP(kDHCPTimeout)) {
+    Serial.printf("Failed to get IP address from DHCP\r\n");
     return;
   }
 
-  // Just for fun we are going to fetch the MAC address out of the Teensy
-  // and display it
-  uint8_t mac[6];
-  Ethernet.macAddress(mac);  // Retrieve the MAC address and print it out
-  Serial.printf("MAC = %02x:%02x:%02x:%02x:%02x:%02x\n",
-         mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
-  
+  IPAddress ip = Ethernet.localIP();
+  Serial.printf("    Local IP    = %u.%u.%u.%u\r\n", ip[0], ip[1], ip[2], ip[3]);
+  ip = Ethernet.subnetMask();
+  Serial.printf("    Subnet mask = %u.%u.%u.%u\r\n", ip[0], ip[1], ip[2], ip[3]);
+  ip = Ethernet.gatewayIP();
+  Serial.printf("    Gateway     = %u.%u.%u.%u\r\n", ip[0], ip[1], ip[2], ip[3]);
+  ip = Ethernet.dnsServerIP();
+  Serial.printf("    DNS         = %u.%u.%u.%u\r\n", ip[0], ip[1], ip[2], ip[3]);
 
-  // EthernetClient client;
-  // if(client.connect(sip,9093)){
-  //   Serial.println("connected");
-  // }
+  // Start UDP listening on the NTP port
+  udp.begin(123);
+
+  //create NTP request package
+  memset(buf, 0, 48);
+  buf[0] = 0b11'100'011;  // LI leap indicator, Version number (current 3), Mode 3 = client
+  buf[1] = 0; //stratum, 0 = unspecified
+  buf[2] = 6; //maximum time between successive messages 2^x
+  buf[3] = 0xEC;  // Peer Clock Precision -13??
+
+//  buf[12] = 49; //reference identifier "x"
+//  buf[13] = 0x4E;
+//  buf[14] = 49;
+//  buf[15] = 52;
+
+ buf[12] = 90; //reference identifier "x"
+ buf[13] = 90;
+ buf[14] = 90;
+ buf[15] = 90;
 
 
-  //----- Buttons & Fans -------------------------------------------------------
-  pinMode(buttons,INPUT);
-  pinMode(fan1,OUTPUT);
-  pinMode(fan2,OUTPUT);
 
-  pinMode(34,OUTPUT);
-
-  //----- Sensors --------------------------------------------------------------
-  pinMode(IR1[0],INPUT);
-  pinMode(IR1[1],INPUT);
-  pinMode(IR2[0],INPUT);
-  pinMode(IR2[1],INPUT);
-  pinMode(IR3[0],INPUT);
-  pinMode(IR3[1],INPUT);
-  pinMode(IR4[0],INPUT);
-  pinMode(IR4[1],INPUT);
-
-  //----- Real Time Clock ------------------------------------------------------
-  setSyncProvider(getTeensy3Time);
 } //end of setup
+
+time_t prevDisplay = 0; // when the digital clock was displayed
 
 //##############################################################################
 //#####   L O O P   ############################################################
 //##############################################################################
 void loop(){
 
-  //create/clear strings that get written to uSD card
-  //String RFIDdataString = ""; //holds tag and date
-  //String SENSORDataString = ""; //holds various sensor and diagnostics data
+  digitalWriteFast(statusLED,HIGH); // server ~2.45ms
 
-  digitalWriteFast(34,HIGH); // server ~2.45ms
-
- // listen for incoming clients
-  //EthernetClient client = server.available();
-  // if(client){
-  //   Serial.println("new client");
-  //   // an http request ends with a blank line
-  //   while(client.connected()){
-  //     client.write("bla bla");
-  //   }
-  //   // close the connection:
-  //   client.stop();
-  //   Serial.println("client disconnected");
-  // }
-
-
-  EthernetClient client1;  //create new client object
-  if (!client1.connect(sip, 8888)) { //connect to server ip and port
-      Serial.println("Connection to host failed");
-      delay(1000);
-      return;
+  // Set the Transmit Timestamp
+  uint32_t t = Teensy3Clock.get();
+  if (t >= kBreakTime) {
+    t -= kBreakTime;
+  } else {
+    t += kEpochDiff;
   }
-  Serial.println("Connection to server successful!");
-  client1.write("C1,RFID,IRSTATUS,FANSTATUS,RANDOMDATA"); //send data to server
-  Serial.println("Disconnecting...");
-  client1.stop();  //close connection
-
-  delay(500);
   
-  EthernetClient client2;  //create new client object
-  if (!client2.connect(sip, 8888)) { //connect to server ip and port
-      Serial.println("Connection to host failed");
-      delay(1000);
-      return;
+  uint32_t tfrac = readRTCfrac();
+  
+  //transmit timestamps will not be sent
+  // buf[24] = t >> 24; 
+  // buf[25] = t >> 16;
+  // buf[26] = t >> 8;
+  // buf[27] = t;
+  
+  // uint64_t tsend = (tfrac/32768) * 4294967296;
+  // buf[28] = tsend >> 24;
+  // buf[29] = tsend >> 16;
+  // buf[30] = tsend >> 8;
+  // buf[31] = tsend;
+
+  //16 17 18 19 20 s|f 21 22 23 local last rtc set Reference timestamp
+  //24 25 26 27 28 s|f 29 30 31 local send Originate timestamp
+  //32 33 34 35 36 s|f 37 38 39 NTP server Receive timestamp
+  //40 41 42 43 44 s|f 45 46 47 NTP server Transmit timestamp
+
+
+  // Send the packet
+  Serial.println("--- Sending NTP request to the gateway...");
+  if (!udp.send("de.pool.ntp.org", 123, buf, 48)) { //server address, port, data, length
+  //if (!udp.send("0.pool.ntp.org", 123, buf, 48)) {
+    Serial.println("ERROR.");
   }
-  Serial.println("Connection to server successful!");
-  client2.write("C2,RFID,IRSTATUS,FANSTATUS,RANDOMDATA"); //send data to server
-  Serial.println("Disconnecting...");
-  client2.stop();  //close connection
-
-  delay(500);
+  elapsedMillis timeout;
+  while((udp.parsePacket() < 0) && (timeout < 200)); //returns size of packet or <= 0 if no packet
 
 
+  const uint8_t *buf = udp.data(); //returns pointer to received package data
 
-  digitalWriteFast(34,LOW);
+  // See: Section 5, "SNTP Client Operations"
+  int mode = buf[0] & 0x07;
+  if (((buf[0] & 0xc0) == 0xc0) ||  // LI == 3 (Alarm condition)
+      (buf[1] == 0) ||              // Stratum == 0 (Kiss-o'-Death)
+      !(mode == 4 || mode == 5)) {  // Must be Server or Broadcast mode
+    Serial.println("Discarding reply, other stuff\r\n");
+    return;
+  }
+
+  //seconds server receive
+  uint32_t lt   = t;
+  uint32_t ltms = tfrac;
+
+  //seconds server receive
+  uint32_t st   = (uint32_t{buf[32]} << 24) | (uint32_t{buf[33]} << 16) | (uint32_t{buf[34]} << 8) | uint32_t{buf[35]};
+  //fractions server receive
+  uint32_t stms = (uint32_t{buf[36]} << 24) | (uint32_t{buf[37]} << 16) | (uint32_t{buf[38]} << 8) | uint32_t{buf[39]};
+
+  //seconds server send
+  t   = (uint32_t{buf[40]} << 24) | (uint32_t{buf[41]} << 16) | (uint32_t{buf[42]} << 8) | uint32_t{buf[43]};
+  //fractions server send
+  uint32_t tms = (uint32_t{buf[44]} << 24) | (uint32_t{buf[45]} << 16) | (uint32_t{buf[46]} << 8) | uint32_t{buf[47]};
+
+  if (t == 0) {
+    Serial.println("Discarding reply, time 0\r\n");
+    return;  // Also discard when the Transmit Timestamp is zero
+  }
+
+  uint32_t rt = Teensy3Clock.get();
+  uint32_t rtfrac = readRTCfrac();
+
+  // See: Section 3, "NTP Timestamp Format"
+  if ((lt & 0x80000000U) == 0) {
+    lt += kBreakTime;
+  } else {
+    lt -= kEpochDiff;
+  }
+  if ((t & 0x80000000U) == 0) {
+    t += kBreakTime;
+  } else {
+    t -= kEpochDiff;
+  }
+  if ((st & 0x80000000U) == 0) {
+    st += kBreakTime;
+  } else {
+    st -= kEpochDiff;
+  }
+
+  //caluclate shift through transit times
+   
+  // loc send: 2023-08-16 14:00:29.637.573242
+  // NTP rec.: 2023-08-16 14:00:29.669.647034
+  // NTP send: 2023-08-16 14:00:29.669.718506
+  // loc rec.: 2023-08-16 14:00:29.668.487549
+  // loc adj.: 2023-08-16 14:00:29.669.799805
 
 
 
+  //float diff = abs(((float)tms/UINT32_MAX) - ((float)tfrac/32768))*1000;
+  float diff = (float)(rtfrac - tfrac)/32768 * 1000;
+  uint32_t adjust = abs(rtfrac - tfrac)/2; //time between send and receive
+  //adjust = adjust << 17; //convert to ntp frac
 
-// import socket
-
-// s = socket.socket()         
-
-// s.bind(('0.0.0.0', 8090 ))
-// s.listen(0)                 
-// print("bla")
-// while True:
-
-//     client, addr = s.accept()
-
-//     while True:
-//         content = client.recv(32)
-
-//         if len(content) ==0:
-//            break
-
-//         else:
-//             print(content)
-
-//     print("Closing connection")
-//     client.close()
+  // Serial.println( ((float)adjust/32768) * 1000);
+  // Serial.println( ((float)tms/UINT32_MAX) * 1000);
+  uint32_t newdiff = (tms >> 17) + adjust;
+  // Serial.println( ((float)newdiff/32768) * 1000);
 
 
 
+  // Set the RTC and time ~0.95 ms
+  if(once){
+    once -= 1;
+    rtc_set_secs_and_frac(t,(tms >> 17) + adjust);
+  }
+  //read RTC and time
+  uint32_t atfrac = readRTCfrac();
+  uint32_t at = Teensy3Clock.get();
+  tmElements_t atm;
+  breakTime(at, atm);
+  float atimems = ((float)atfrac/32768) * 1000;
 
+  
+  // Print the time
+  tmElements_t ltm;
+  breakTime(lt, ltm);
+  tmElements_t tm;
+  breakTime(t, tm);
+  tmElements_t stm;
+  breakTime(st, stm);
+  tmElements_t rtm;
+  breakTime(rt, rtm);
+
+  float rtimems = ((float)rtfrac/32768) * 1000;
+  float ltimems = ((float)ltms/32768) * 1000;
+  float stimems = ((float)stms/UINT32_MAX) * 1000;
+  float timems  = ((float)tms/UINT32_MAX) * 1000;
+
+
+  Serial.printf("loc send: %04u-%02u-%02u %02u:%02u:%02u.%02f\r\n", ltm.Year + 1970, ltm.Month, ltm.Day, ltm.Hour, ltm.Minute, ltm.Second, ltimems);
+  Serial.printf("NTP rec.: %04u-%02u-%02u %02u:%02u:%02u.%02f\r\n", stm.Year + 1970, stm.Month, stm.Day, stm.Hour, stm.Minute, stm.Second, stimems);
+  Serial.printf("NTP send: %04u-%02u-%02u %02u:%02u:%02u.%02f\r\n", tm.Year + 1970, tm.Month, tm.Day, tm.Hour, tm.Minute, tm.Second, timems);
+  Serial.printf("loc rec.: %04u-%02u-%02u %02u:%02u:%02u.%02f\r\n", rtm.Year + 1970, rtm.Month, rtm.Day, rtm.Hour, rtm.Minute, rtm.Second, rtimems);
+  Serial.printf("loc adj.: %04u-%02u-%02u %02u:%02u:%02u.%02f\r\n", atm.Year + 1970, atm.Month, atm.Day, atm.Hour, atm.Minute, atm.Second, atimems);
+  Serial.print("difference: ");
+  Serial.println( (((float)newdiff/32768) * 1000) - (((float)rtfrac/32768) * 1000) );
+
+
+  digitalWriteFast(statusLED,LOW);
+  delay(60'000); //being nice to ntp server
 
 } //end of loop
 
 //##############################################################################
 //#####   F U N C T I O N S   ##################################################
 //##############################################################################
+
+
+uint64_t rtc_get_64(void)
+{
+	uint32_t hi1 = SNVS_HPRTCMR;
+  uint64_t tmp64;
+	uint32_t lo1 = SNVS_HPRTCLR;
+	while (1) {
+		uint32_t hi2 = SNVS_HPRTCMR;
+		uint32_t lo2 = SNVS_HPRTCLR;
+		if (lo1 == lo2 && hi1 == hi2) {
+      tmp64 = hi1;
+			return (tmp64 << 32) | lo1;
+		}
+		hi1 = hi2;
+		lo1 = lo2;
+	}
+}
+
+int16_t readRTCfrac() //read fractional seconds from RTC 1/32768 sec.
+{
+  uint32_t hi1, lo1, hi2, lo2;
+  hi1 = SNVS_HPRTCMR;
+  lo1 = SNVS_HPRTCLR;
+  while(1) {
+    hi2 = SNVS_HPRTCMR;
+    lo2 = SNVS_HPRTCLR;
+    if (lo1 == lo2 && hi1 == hi2) {
+      return (int16_t)(lo2 & 0x7fff); //return last 15 bits
+    }
+    hi1 = hi2;
+    lo1 = lo2;
+  }
+}
+
+void rtc_set_64(uint64_t t)
+{
+	// stop the RTC
+	SNVS_HPCR &= ~(SNVS_HPCR_RTC_EN | SNVS_HPCR_HP_TS);
+	while (SNVS_HPCR & SNVS_HPCR_RTC_EN); // wait
+	// stop the SRTC
+	SNVS_LPCR &= ~SNVS_LPCR_SRTC_ENV;
+	while (SNVS_LPCR & SNVS_LPCR_SRTC_ENV); // wait
+	// set the SRTC
+	SNVS_LPSRTCLR = t & 0xffffffff;
+        SNVS_LPSRTCMR = t >> 32;
+	// start the SRTC
+	SNVS_LPCR |= SNVS_LPCR_SRTC_ENV;
+	while (!(SNVS_LPCR & SNVS_LPCR_SRTC_ENV)); // wait
+	// start the RTC and sync it to the SRTC
+	SNVS_HPCR |= SNVS_HPCR_RTC_EN | SNVS_HPCR_HP_TS;
+}
+
+void rtc_set_secs_and_frac(uint32_t secs, uint32_t frac)
+{
+	// stop the RTC
+	SNVS_HPCR &= ~(SNVS_HPCR_RTC_EN | SNVS_HPCR_HP_TS);
+	while (SNVS_HPCR & SNVS_HPCR_RTC_EN); // wait
+	// stop the SRTC
+	SNVS_LPCR &= ~SNVS_LPCR_SRTC_ENV;
+	while (SNVS_LPCR & SNVS_LPCR_SRTC_ENV); // wait
+	// set the SRTC
+  SNVS_LPSRTCLR = ((secs & 0x1ffffUL) << 15) | (frac & 0x7fff);
+	SNVS_LPSRTCMR = secs >> 17;
+	// start the SRTC
+	SNVS_LPCR |= SNVS_LPCR_SRTC_ENV;
+	while (!(SNVS_LPCR & SNVS_LPCR_SRTC_ENV)); // wait
+	// start the RTC and sync it to the SRTC
+	SNVS_HPCR |= SNVS_HPCR_RTC_EN | SNVS_HPCR_HP_TS;
+}
+
+
+//0b1'11111111'11111111
+
+
+
 
 //Get Time from internal RTC (updated on program upload) -----------------------
 time_t getTeensy3Time(){
@@ -371,24 +442,6 @@ String nicetime(time_t nowtime){
 	return ntime;
 }
 
-//Sensors related functions ----------------------------------------------------
-String createSENSORDataString(String identifier, String event, String dataString){
-  time_t nowtime = now();
-
-  if(dataString != 0) dataString += "\n"; //if datastring is not empty, add newline
-  dataString += identifier;
-  dataString += ",";
-  dataString += nowtime;
-  dataString += ",";
-  dataString += "";
-  dataString += ",";
-  dataString += millis();
-  dataString += ",";
-  dataString += event;
-
-  return dataString;
-}
-
 //Helper for printing to OLED Display (text) -----------------------------------
 void OLEDprint(uint8_t row, uint8_t column, uint8_t clear, uint8_t update, String text){
   if(clear) oled.clearBuffer(); //clear screen 
@@ -410,288 +463,4 @@ void OLEDprintFraction(uint8_t row, uint8_t column, uint8_t clear, uint8_t updat
   oled.setCursor(column * 6,(row * 10) + 10); //max row 0-5, max col 0-20
   oled.print(number,decimals);
   if(update) oled.sendBuffer();
-}
-
-//get RFID ID in string format -------------------------------------------------
-String getID(uint8_t in[6]){
-  uint64_t in64 = 0;
-  in64 |= (in[4] & 0b111111);
-  in64 <<= 8;
-  in64 |= in[3];
-  in64 <<= 8;
-  in64 |= in[2];
-  in64 <<= 8;
-  in64 |= in[1];
-  in64 <<= 8;
-  in64 |= in[0];
-
-  String result = "";
-  while(in64){
-    char c = in64 % 10;
-    in64 /= 10;
-    c += '0'; //add to character zero
-    result = c + result; //concatenate
-  }
-  return result;
-}
-
-//convert byte array to char (RFID countrycode) --------------------------------
-uint16_t getCountryCode(uint8_t in[6]){
-  uint16_t countrycode = 0;
-  countrycode = ((countrycode | in[5]) << 2) | ((in[4] >> 6) & 0b11);
-  return countrycode;
-}
-
-//enable one reader, wait for confirmation from reader -------------------------
-void enableReader(uint8_t reader){
-  uint8_t send_status = 1;
-  while(send_status != 0){
-    Wire.beginTransmission(reader);
-    Wire.write(1); //enable reader
-    send_status = Wire.endTransmission();
-  }
-}
-
-//disable one reader, wait for confirmation from reader ------------------------
-void disableReader(uint8_t reader){
-  uint8_t send_status = 1;
-  while(send_status != 0){
-    Wire.beginTransmission(reader);
-    Wire.write(0); //disable reader
-    send_status = Wire.endTransmission();
-  }
-}
-
-//switch between two readers, optimized timing for minimum downtime ------------
-void switchReaders(byte readerON, byte readerOFF){
-  //turn on one reader
-  Wire.beginTransmission(readerON);
-  Wire.write(1);
-  Wire.endTransmission();
-  delayMicroseconds(1200); //reduces down-time of antennas since startup isn't instant
-  //turn off the other
-  Wire.beginTransmission(readerOFF);
-  Wire.write(0);
-  Wire.endTransmission();
-}
-
-//sets mode of the RFID reader 2 = RFID mode (retun tags), 3 = measure mode (return resonant frequency)
-void setReaderMode(uint8_t reader,uint8_t mode){
-  uint8_t send_status = 1;
-  while(send_status != 0){
-    Wire.beginTransmission(reader);
-    Wire.write(mode);
-    send_status = Wire.endTransmission();
-  }
-}
-
-//Query reader for additional information --------------------------------------
-uint32_t fetchResFreq(uint8_t reader){
-  setReaderMode(reader,3); //set to frequency measure mode and perform measurement
-  delay(1200);             //frequency measurement takes about >=1.1 seconds
-
-  //fetch measured frequency
-  uint32_t resfreq = 0;
-  uint8_t rcv[4];
-  Wire.requestFrom(reader,4,1); //request frequency
-  uint8_t n = 0;
-  while(Wire.available()){
-    rcv[n] = Wire.read();
-    n++;
-  }
-  //assemble from array to 32bit variable
-  resfreq |= (rcv[3] << 24);
-  resfreq |= (rcv[2] << 16);
-  resfreq |= (rcv[1] <<  8);
-  resfreq |= (rcv[0] <<  0);
-
-  //leave measure mode
-  setReaderMode(reader,2);  //set to tag-transmitting mode
-
-  return resfreq;
-}
-
-//fetch tag data from reader ---------------------------------------------------
-uint8_t fetchtag(byte reader, byte busrelease){
-  Wire.requestFrom(reader,6,busrelease); //address, quantity ~574uS, bus release
-  uint8_t n = 0;
-  while(Wire.available()){
-    tag[n] = Wire.read();
-    n++;
-  }
-  //sum received values
-  int16_t tag_sum = 0;
-  for(uint8_t i = 0; i < sizeof(tag); i++){
-    tag_sum = tag_sum + tag[i];
-  }
-  //if tag is empty, no tag was detected
-  if(tag_sum > 0) return 1;
-  else return 0;
-}
-
-//compare current and last tag, no change 0, new tag entered 1, switch 2 (2 present), tag left 3
-uint8_t compareTags(byte currenttag[], byte lasttag[]){
-  uint8_t tagchange = 0; //0 = no change, 1 = new tag entered, 2 = switch (2 present), 3 = tag left
-  int16_t lasttag_sum = 0;
-  int16_t currenttag_sum = 0;
-
-  for(uint8_t i = 0; i < sizeof(lasttag); i++){
-    if(currenttag[i] != lasttag[i]){ //if diff between current and last tag, something changed
-      for(uint8_t j = 0; j < sizeof(lasttag); j++){  //check if arrays are empty by summing all values
-        lasttag_sum = lasttag_sum + lasttag[j];
-        currenttag_sum = currenttag_sum + currenttag[j];
-      }
-      if(lasttag_sum == 0) tagchange = 1;                            //if lasttag is empty but not currenttag: 1 = new tag entered
-      if((lasttag_sum != 0) && (currenttag_sum != 0)) tagchange = 2; //if lasttag wasn't empty and currenttag isn't either, tags switched (two present, one left)
-      if(currenttag_sum == 0) tagchange = 3;                         //if currenttag is empty, but not last tag, 3 = tag left
-      break;
-    }
-  }
-  return(tagchange); //return how (if) the tag changed
-}
-
-//create string that is later saved to uSD -------------------------------------
-String createRFIDDataString(byte currenttag[], byte lasttag[], byte currenttag_present, int tagchange, String identifier){
-  String dataString;
-  time_t nowtime = now();
-  
-  //get country code and tag ID for currenttag (ct) and lasttag (lt)
-  int16_t ctCC = getCountryCode(currenttag);
-  int16_t ltCC = getCountryCode(lasttag);
-  String ctID = getID(currenttag);
-  String ltID = getID(lasttag);
-
-  //save tag data to dataString which is written to SD
-  if((tagchange == 2) || (tagchange == 3)){ //tag left (3) or switch (2)
-    dataString += identifier;
-    dataString += ",";
-    dataString += nowtime;
-    dataString += ",";
-    dataString += ltCC;
-    dataString += "_";
-    dataString += ltID;
-    dataString += ",";
-    dataString += millis();
-    dataString += ",X";
-  }
-  //insert newline when a switch happens
-  if(tagchange == 2){
-    dataString += "\n";
-  }
-  //new tag entered (1) or switch (2)
-  if((tagchange == 1) || (tagchange == 2)){
-    dataString += identifier;
-    dataString += ",";
-    dataString += nowtime;
-    dataString += ",";
-    dataString += ctCC;
-    dataString += "_";
-    dataString += ctID;
-    dataString += ",";
-    dataString += millis();
-    dataString += ",E";
-  }
-  return dataString;
-}
-
-//get status of door module, busy and IR barrier status ------------------------
-uint8_t getDoorModuleStatus(uint8_t address){
-  uint8_t rcv[2];
-  Wire.requestFrom(address,2,1); //address, quantity ~574uS 6 bytes, bus release
-  uint8_t n = 0;
-  while(Wire.available()){
-    rcv[n] = Wire.read();
-    n++;
-  }
-
-  door1_state[0] = (rcv[0] >> 0) & 0x01;  //busy flag
-  door1_state[1] = (rcv[0] >> 1) & 0x01;  //tx1
-  door1_state[2] = (rcv[0] >> 2) & 0x01;  //tx2
-  door1_state[3] = (rcv[0] >> 3) & 0x01;  //rx1
-  door1_state[4] = (rcv[0] >> 4) & 0x01;  //rx2
-  door1_state[5] = (rcv[0] >> 5) & 0x01;  //top
-  door1_state[6] = (rcv[0] >> 6) & 0x01;  //bottom
-//  door1_state[7] = (rcv[0] >> 7) & 0x01; //unused at the moment
-
-  door2_state[0] = (rcv[1] >> 0) & 0x01;  //busy flag
-  door2_state[1] = (rcv[1] >> 1) & 0x01;  //tx1
-  door2_state[2] = (rcv[1] >> 2) & 0x01;  //tx2
-  door2_state[3] = (rcv[1] >> 3) & 0x01;  //rx1
-  door2_state[4] = (rcv[1] >> 4) & 0x01;  //rx2
-  door2_state[5] = (rcv[1] >> 5) & 0x01;  //top
-  door2_state[6] = (rcv[1] >> 6) & 0x01;  //bottom
-//  door2_state[7] = (rcv[1] >> 7) & 0x01; //unused at the moment
-
-  //update time door has stopped moving
-  if(!door1_state[0]) door_stop_time[HCdoor] = millis();
-  if(!door2_state[0]) door_stop_time[TCdoor] = millis();
-
-  //returns busy flags of both doors, 0b00 none busy, 0b01 door1 busy, 0b10 door2 busy, 0b11 both busy
-  return (door2_state[0] << 1) | door1_state[0];  //busy flag
-}
-
-//move door up/down ------------------------------------------------------------
-void moveDoor(uint8_t address,uint8_t door,uint8_t direction){
-  uint16_t pulsetime = door_speed[door];
-
-  //check if door is not already at target or moving towards target. up =  0, down = 1
-  if((!door_open[door] && !door_moving[door] && !direction) ||
-     (!door_open[door] &&  door_moving[door] &&  direction) ||
-     ( door_open[door] && !door_moving[door] &&  direction) ||
-     ( door_open[door] &&  door_moving[door] && !direction)){
-
-    //if door is moving and we issue a new command, door state must be changed as the
-    //getDoorstatus command will not be triggered before door has reached new (opposite) target
-    if(door_moving[door]) door_open[door] = !door_open[door];
-
-    //send movement instructions to door
-    uint8_t sendbuffer[7] = {0,0,0,0,0,0,0};
-    sendbuffer[0] = 2;  //option for different move commands
-    sendbuffer[1] = direction;
-    sendbuffer[2] = pulsetime & 0xff;
-    sendbuffer[3] = (pulsetime >> 8) & 0xff;
-    sendbuffer[4] = door;
-
-    uint8_t send_status = 1;
-    while(send_status != 0){
-      Wire.beginTransmission(address); //address
-      for(uint8_t i = 0; i < 7; i++) Wire.write(sendbuffer[i]);
-      send_status = Wire.endTransmission();
-    }
-
-    //set flag for moving and times for polling and checking movement duration
-    door_moving[door] = 1; //set door status to moving
-    door_poll_time[HCdoor] = millis();
-    door_poll_time[TCdoor] = millis();
-    door_move_time[door] = millis();
-  }
-}
-
-//critical error, flash LED SOS, stop everything -------------------------------
-void criticalerror(){
-  while(1){
-    digitalWrite(errorLED,HIGH);
-    delay(200);
-    digitalWrite(errorLED,LOW);
-    delay(200);
-  }
-}
-
-//confirm with any button ------------------------------------------------------
-void confirm(){
-  while(analogRead(buttons) > 850){
-    delay(50);
-  }
-}
-
-//waits and returns which button (1,2,3) was pressed ---------------------------
-uint8_t getButton(){
-  uint16_t input = 1023;
-  while(input > 850){
-    input = analogRead(buttons);
-    delay(50);
-  }
-  if(input <= 150) return 1;
-  if(input > 150 && input <= 450) return 2;
-  if(input > 450 && input <= 850) return 3;
 }
