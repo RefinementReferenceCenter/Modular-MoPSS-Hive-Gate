@@ -62,6 +62,7 @@ constexpr uint32_t kBreakTime = 2'085'978'496;
 EthernetUDP udp;
 // Buffer.
 uint8_t buf[48];
+float RTC_drift = 100; //difference between RTC and NTP time
 
 //----- declaring variables ----------------------------------------------------
 //Current Version of the program
@@ -98,86 +99,127 @@ int once = 2;
 //#####   S E T U P   ##########################################################
 //##############################################################################
 void setup(){
-  pinMode(statusLED,OUTPUT);
-  pinMode(errorLED,OUTPUT);
+
   //----- Buttons & Fans -------------------------------------------------------
   pinMode(buttons,INPUT);
   pinMode(34,OUTPUT);
- 
+  pinMode(statusLED,OUTPUT);
+  pinMode(errorLED,OUTPUT);
+  
+  
   //start I2C
   Wire.begin();
+  
+  //----- Display --------------------------------------------------------------
+  oled.setI2CAddress(oledDisplay);
+  oled.begin();
+  oled.setFont(u8g2_font_6x10_mf); //set font w5 h10
 
   //----- communication --------------------------------------------------------
   //start Serial communication
 
   digitalWrite(errorLED,HIGH);
-
   Serial.begin(115200);
-  while(!Serial); //wait for serial connection
-
+  //while(!Serial); //wait for serial connection
   digitalWrite(errorLED,LOW);
-
   Serial.println("alive");
 
   //----- Real Time Clock ------------------------------------------------------
-  //setSyncProvider(getTeensy3Time);
+  setSyncProvider(getTeensy3Time);
 
   //----- Ethernet -------------------------------------------------------------
-  // start the Ethernet
-  
-
-  Serial.println("Starting...\r\n");
-  Serial.println("start");
-
+  //fetch mac address
+  Serial.println("Fetching mac address...");
+  OLEDprint(0,0,1,1,">>> Ethernet <<<");
   uint8_t mac[6];
   Ethernet.macAddress(mac);  // This is informative; it retrieves, not sets
-  Serial.printf("MAC = %02x:%02x:%02x:%02x:%02x:%02x\r\n",
-         mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+  char dataString[18];
+  sprintf(dataString,"%02X:%02X:%02X:%02X:%02X:%02X",mac[0],mac[1],mac[2],mac[3],mac[4],mac[5]);
+  //print to serial
+  Serial.print("MAC: "); 
+  Serial.println(dataString);
+  //print to oled
+  OLEDprint(1,0,0,1,"MAC");
+  OLEDprint(1,4,0,1,dataString);
 
-  Serial.printf("Starting Ethernet with DHCP...\r\n");
-  if (!Ethernet.begin()) {
-    Serial.printf("Failed to start Ethernet\r\n");
-    return;
-  }
-  if (!Ethernet.waitForLocalIP(kDHCPTimeout)) {
-    Serial.printf("Failed to get IP address from DHCP\r\n");
-    return;
+  //Start ethernet with DHCP
+  Serial.println("Starting Ethernet with DHCP...");
+  OLEDprint(2,0,0,1,"get IP via DHCP...");
+  uint8_t Ethstate = 0;
+  while(Ethstate == 0){
+    if(!Ethernet.begin()){
+      Serial.printf("Failed to start Ethernet\r\n");
+      
+      OLEDprint(4,0,0,0,"Failed to start Eth.");
+      OLEDprint(5,0,0,0,"CONFIRM");
+      OLEDprint(5,14,0,1,"REPEAT");
+      uint8_t buttonpress = getButton();
+      if(buttonpress == 1) Ethstate = 1;
+      OLEDprint(4,0,0,0,"                    "); //clear line
+      OLEDprint(5,0,0,1,"                    ");
+    }
+    if(!Ethernet.waitForLocalIP(15000)){ //15 second timeout to get IP address via DHCP
+      Serial.printf("Failed to get IP address from DHCP\r\n");
+      OLEDprint(4,0,0,1,"Failed to get IP");
+      OLEDprint(5,0,0,1,"CONFIRM");
+      OLEDprint(5,14,0,1,"REPEAT");
+      uint8_t buttonpress = getButton();
+      if(buttonpress == 1) Ethstate = 1;
+      OLEDprint(4,0,0,0,"                    "); //clear line
+      OLEDprint(5,0,0,1,"                    ");
+    }
+    else{
+      Ethstate = 1;
+    }
   }
 
+  //print to display
   IPAddress ip = Ethernet.localIP();
-  Serial.printf("    Local IP    = %u.%u.%u.%u\r\n", ip[0], ip[1], ip[2], ip[3]);
+  sprintf(dataString,"%u.%u.%u.%u",ip[0],ip[1],ip[2],ip[3]);
+  Serial.print("IP:          ");
+  Serial.println(dataString);
+  OLEDprint(2,0,0,0,"                    ");
+  OLEDprint(2,0,0,0,"IP");
+  OLEDprint(2,4,0,0,dataString);
+
   ip = Ethernet.subnetMask();
-  Serial.printf("    Subnet mask = %u.%u.%u.%u\r\n", ip[0], ip[1], ip[2], ip[3]);
+  sprintf(dataString,"%u.%u.%u.%u",ip[0],ip[1],ip[2],ip[3]);
+  Serial.print("Subnet Mask: ");
+  Serial.println(dataString);
+  OLEDprint(3,0,0,0,"Sub");
+  OLEDprint(3,4,0,0,dataString);
+
   ip = Ethernet.gatewayIP();
-  Serial.printf("    Gateway     = %u.%u.%u.%u\r\n", ip[0], ip[1], ip[2], ip[3]);
+  sprintf(dataString,"%u.%u.%u.%u",ip[0],ip[1],ip[2],ip[3]);
+  Serial.print("Gateway:     ");
+  Serial.println(dataString);
+  OLEDprint(4,0,0,0,"Gat");
+  OLEDprint(4,4,0,0,dataString);
+
   ip = Ethernet.dnsServerIP();
-  Serial.printf("    DNS         = %u.%u.%u.%u\r\n", ip[0], ip[1], ip[2], ip[3]);
+  sprintf(dataString,"%u.%u.%u.%u",ip[0],ip[1],ip[2],ip[3]);
+  Serial.print("DNS:         ");
+  Serial.println(dataString);
+  OLEDprint(5,0,0,0,"DNS");
+  OLEDprint(5,4,0,1,dataString);
 
   // Start UDP listening on the NTP port
   udp.begin(123);
 
   //create NTP request package
   memset(buf, 0, 48);
-  buf[0] = 0b11'100'011;  // LI leap indicator, Version number (current 3), Mode 3 = client
+  buf[0] = 0b00'100'011;  // LI leap indicator warns of leap seconds, Version number (current 3), Mode 3 = client
   buf[1] = 0; //stratum, 0 = unspecified
   buf[2] = 6; //maximum time between successive messages 2^x
-  buf[3] = 0xEC;  // Peer Clock Precision -13??
+  buf[3] = 0xF1;  // Peer Clock Precision -15
 
-//  buf[12] = 49; //reference identifier "x"
-//  buf[13] = 0x4E;
-//  buf[14] = 49;
-//  buf[15] = 52;
-
- buf[12] = 90; //reference identifier "x"
- buf[13] = 90;
- buf[14] = 90;
- buf[15] = 90;
-
-
+  buf[12] = 90; //reference identifier "x" for experimental
+  buf[13] = 90;
+  buf[14] = 90;
+  buf[15] = 90;
 
 } //end of setup
 
-time_t prevDisplay = 0; // when the digital clock was displayed
 
 //##############################################################################
 //#####   L O O P   ############################################################
@@ -186,47 +228,31 @@ void loop(){
 
   digitalWriteFast(statusLED,HIGH); // server ~2.45ms
 
+
+
+  //Fetch NTP time and update RTC
   // Set the Transmit Timestamp
-  uint32_t t = Teensy3Clock.get();
-  if (t >= kBreakTime) {
-    t -= kBreakTime;
+  uint32_t send_lt = Teensy3Clock.get();  //send local time
+  if (send_lt >= kBreakTime) {
+    send_lt -= kBreakTime;
   } else {
-    t += kEpochDiff;
+    send_lt += kEpochDiff;
   }
+  uint32_t send_lt_frac15 = readRTCfrac(); //fractions of seconds 0 - 2^15
   
-  uint32_t tfrac = readRTCfrac();
-  
-  //transmit timestamps will not be sent
-  // buf[24] = t >> 24; 
-  // buf[25] = t >> 16;
-  // buf[26] = t >> 8;
-  // buf[27] = t;
-  
-  // uint64_t tsend = (tfrac/32768) * 4294967296;
-  // buf[28] = tsend >> 24;
-  // buf[29] = tsend >> 16;
-  // buf[30] = tsend >> 8;
-  // buf[31] = tsend;
-
-  //16 17 18 19 20 s|f 21 22 23 local last rtc set Reference timestamp
-  //24 25 26 27 28 s|f 29 30 31 local send Originate timestamp
-  //32 33 34 35 36 s|f 37 38 39 NTP server Receive timestamp
-  //40 41 42 43 44 s|f 45 46 47 NTP server Transmit timestamp
-
 
   // Send the packet
   Serial.println("--- Sending NTP request to the gateway...");
+  elapsedMicros looptimemc;
   if (!udp.send("de.pool.ntp.org", 123, buf, 48)) { //server address, port, data, length
-  //if (!udp.send("0.pool.ntp.org", 123, buf, 48)) {
     Serial.println("ERROR.");
   }
   elapsedMillis timeout;
   while((udp.parsePacket() < 0) && (timeout < 200)); //returns size of packet or <= 0 if no packet
 
-
   const uint8_t *buf = udp.data(); //returns pointer to received package data
 
-  // See: Section 5, "SNTP Client Operations"
+  //check if the data we received is according to spec
   int mode = buf[0] & 0x07;
   if (((buf[0] & 0xc0) == 0xc0) ||  // LI == 3 (Alarm condition)
       (buf[1] == 0) ||              // Stratum == 0 (Kiss-o'-Death)
@@ -235,107 +261,101 @@ void loop(){
     return;
   }
 
-  //seconds server receive
-  uint32_t lt   = t;
-  uint32_t ltms = tfrac;
+  //seconds and fractions when NTP received request
+  uint32_t receive_st        = (uint32_t{buf[32]} << 24) | (uint32_t{buf[33]} << 16) | (uint32_t{buf[34]} << 8) | uint32_t{buf[35]};
+  uint32_t receive_st_frac32 = (uint32_t{buf[36]} << 24) | (uint32_t{buf[37]} << 16) | (uint32_t{buf[38]} << 8) | uint32_t{buf[39]};
+  //seconds and fractions when NTP sent
+  uint32_t send_st        = (uint32_t{buf[40]} << 24) | (uint32_t{buf[41]} << 16) | (uint32_t{buf[42]} << 8) | uint32_t{buf[43]};
+  uint32_t send_st_frac32 = (uint32_t{buf[44]} << 24) | (uint32_t{buf[45]} << 16) | (uint32_t{buf[46]} << 8) | uint32_t{buf[47]};
+  //seconds and fractions of local clock when NTP packet is received 
+  uint32_t receive_lt = Teensy3Clock.get();
+  uint32_t receive_lt_frac15 = readRTCfrac();
+  uint32_t looptimebuffer = looptimemc;
 
-  //seconds server receive
-  uint32_t st   = (uint32_t{buf[32]} << 24) | (uint32_t{buf[33]} << 16) | (uint32_t{buf[34]} << 8) | uint32_t{buf[35]};
-  //fractions server receive
-  uint32_t stms = (uint32_t{buf[36]} << 24) | (uint32_t{buf[37]} << 16) | (uint32_t{buf[38]} << 8) | uint32_t{buf[39]};
 
-  //seconds server send
-  t   = (uint32_t{buf[40]} << 24) | (uint32_t{buf[41]} << 16) | (uint32_t{buf[42]} << 8) | uint32_t{buf[43]};
-  //fractions server send
-  uint32_t tms = (uint32_t{buf[44]} << 24) | (uint32_t{buf[45]} << 16) | (uint32_t{buf[46]} << 8) | uint32_t{buf[47]};
-
-  if (t == 0) {
+  if (send_st == 0) {
     Serial.println("Discarding reply, time 0\r\n");
     return;  // Also discard when the Transmit Timestamp is zero
   }
 
-  uint32_t rt = Teensy3Clock.get();
-  uint32_t rtfrac = readRTCfrac();
-
   // See: Section 3, "NTP Timestamp Format"
-  if ((lt & 0x80000000U) == 0) {
-    lt += kBreakTime;
+  if ((send_lt & 0x80000000U) == 0) {
+    send_lt += kBreakTime;
   } else {
-    lt -= kEpochDiff;
+    send_lt -= kEpochDiff;
   }
-  if ((t & 0x80000000U) == 0) {
-    t += kBreakTime;
+  if ((send_st & 0x80000000U) == 0) {
+    send_st += kBreakTime;
   } else {
-    t -= kEpochDiff;
+    send_st -= kEpochDiff;
   }
-  if ((st & 0x80000000U) == 0) {
-    st += kBreakTime;
+  if ((receive_st & 0x80000000U) == 0) {
+    receive_st += kBreakTime;
   } else {
-    st -= kEpochDiff;
+    receive_st -= kEpochDiff;
   }
 
-  //caluclate shift through transit times
-   
-  // loc send: 2023-08-16 14:00:29.637.573242
-  // NTP rec.: 2023-08-16 14:00:29.669.647034
-  // NTP send: 2023-08-16 14:00:29.669.718506
-  // loc rec.: 2023-08-16 14:00:29.668.487549
-  // loc adj.: 2023-08-16 14:00:29.669.799805
+  //calculate time between sending and receiving NTP packet to adjust for network delay
+  float loop_t_ms = (float)(receive_lt_frac15 - send_lt_frac15)/32768 * 1000;
 
-
-
-  //float diff = abs(((float)tms/UINT32_MAX) - ((float)tfrac/32768))*1000;
-  float diff = (float)(rtfrac - tfrac)/32768 * 1000;
-  uint32_t adjust = abs(rtfrac - tfrac)/2; //time between send and receive
-  //adjust = adjust << 17; //convert to ntp frac
-
-  // Serial.println( ((float)adjust/32768) * 1000);
-  // Serial.println( ((float)tms/UINT32_MAX) * 1000);
-  uint32_t newdiff = (tms >> 17) + adjust;
-  // Serial.println( ((float)newdiff/32768) * 1000);
-
-
+  //time between send and receive, assume send/receive takes same time, factor in server time
+  uint32_t adjust = ((receive_lt_frac15 - send_lt_frac15) + ((send_st_frac32 - receive_st_frac32) >> 17)) >> 1; 
 
   // Set the RTC and time ~0.95 ms
-  if(once){
+  if(once > 0){
     once -= 1;
-    rtc_set_secs_and_frac(t,(tms >> 17) + adjust);
+    rtc_set_secs_and_frac(send_st,(send_st_frac32 >> 17) + adjust); //set time and adjust for transmit delay
+    Serial.println("time adjusted");
   }
-  //read RTC and time
-  uint32_t atfrac = readRTCfrac();
-  uint32_t at = Teensy3Clock.get();
-  tmElements_t atm;
-  breakTime(at, atm);
-  float atimems = ((float)atfrac/32768) * 1000;
+  //read time from adjusted RTC
+  uint32_t adjust_lt = Teensy3Clock.get();
+  uint32_t adjust_lt_frac15 = readRTCfrac();
 
+  //Format time for printing
+  tmElements_t slt; //send local time split
+  breakTime(send_lt, slt);
+  float slt_ms = ((float)send_lt_frac15/32768) * 1000; //convert fractions to milliseconds
+
+  tmElements_t rst;
+  breakTime(receive_st, rst);
+  float rst_ms = ((float)receive_st_frac32/UINT32_MAX) * 1000;
+
+  tmElements_t sst;
+  breakTime(send_st, sst);
+  float sst_ms  = ((float)send_st_frac32/UINT32_MAX) * 1000;
+
+  tmElements_t rlt;
+  breakTime(receive_lt, rlt);
+  float rlt_ms = ((float)receive_lt_frac15/32768) * 1000;
   
-  // Print the time
-  tmElements_t ltm;
-  breakTime(lt, ltm);
-  tmElements_t tm;
-  breakTime(t, tm);
-  tmElements_t stm;
-  breakTime(st, stm);
-  tmElements_t rtm;
-  breakTime(rt, rtm);
+  tmElements_t alt;
+  breakTime(adjust_lt, alt);
+  float alt_ms = ((float)adjust_lt_frac15/32768) * 1000;
 
-  float rtimems = ((float)rtfrac/32768) * 1000;
-  float ltimems = ((float)ltms/32768) * 1000;
-  float stimems = ((float)stms/UINT32_MAX) * 1000;
-  float timems  = ((float)tms/UINT32_MAX) * 1000;
+  float RTC_drift = (((float)receive_lt_frac15/32768) * 1000) - (((float)((send_st_frac32 >> 17) + adjust)/32768) * 1000);
 
 
-  Serial.printf("loc send: %04u-%02u-%02u %02u:%02u:%02u.%02f\r\n", ltm.Year + 1970, ltm.Month, ltm.Day, ltm.Hour, ltm.Minute, ltm.Second, ltimems);
-  Serial.printf("NTP rec.: %04u-%02u-%02u %02u:%02u:%02u.%02f\r\n", stm.Year + 1970, stm.Month, stm.Day, stm.Hour, stm.Minute, stm.Second, stimems);
-  Serial.printf("NTP send: %04u-%02u-%02u %02u:%02u:%02u.%02f\r\n", tm.Year + 1970, tm.Month, tm.Day, tm.Hour, tm.Minute, tm.Second, timems);
-  Serial.printf("loc rec.: %04u-%02u-%02u %02u:%02u:%02u.%02f\r\n", rtm.Year + 1970, rtm.Month, rtm.Day, rtm.Hour, rtm.Minute, rtm.Second, rtimems);
-  Serial.printf("loc adj.: %04u-%02u-%02u %02u:%02u:%02u.%02f\r\n", atm.Year + 1970, atm.Month, atm.Day, atm.Hour, atm.Minute, atm.Second, atimems);
-  Serial.print("difference: ");
-  Serial.println( (((float)newdiff/32768) * 1000) - (((float)rtfrac/32768) * 1000) );
+  Serial.printf("loc send: %04u-%02u-%02u %02u:%02u:%02u.%02f\r\n", slt.Year + 1970, slt.Month, slt.Day, slt.Hour, slt.Minute, slt.Second, slt_ms);
+  Serial.printf("NTP rec.: %04u-%02u-%02u %02u:%02u:%02u.%02f\r\n", rst.Year + 1970, rst.Month, rst.Day, rst.Hour, rst.Minute, rst.Second, rst_ms);
+  Serial.printf("NTP send: %04u-%02u-%02u %02u:%02u:%02u.%02f\r\n", sst.Year + 1970, sst.Month, sst.Day, sst.Hour, sst.Minute, sst.Second, sst_ms);
+  Serial.printf("loc rec.: %04u-%02u-%02u %02u:%02u:%02u.%02f\r\n", rlt.Year + 1970, rlt.Month, rlt.Day, rlt.Hour, rlt.Minute, rlt.Second, rlt_ms);
+  Serial.printf("loc adj.: %04u-%02u-%02u %02u:%02u:%02u.%02f\r\n", alt.Year + 1970, alt.Month, alt.Day, alt.Hour, alt.Minute, alt.Second, alt_ms);
+  
+  Serial.print("RTC diff from NTP (ms): ");
+  Serial.println(RTC_drift);
+  
+  Serial.print("Loop time RTC:    ");
+  Serial.println(loop_t_ms);
+  Serial.print("Loop time micros: ");
+  Serial.println((float)looptimebuffer/1000);
+
+  Serial.print("Adjust time: ");
+  Serial.println(((float)adjust)/32768 * 1000);
 
 
   digitalWriteFast(statusLED,LOW);
-  delay(60'000); //being nice to ntp server
+  delay(10'000); //being nice to ntp server
+
 
 } //end of loop
 
@@ -463,4 +483,16 @@ void OLEDprintFraction(uint8_t row, uint8_t column, uint8_t clear, uint8_t updat
   oled.setCursor(column * 6,(row * 10) + 10); //max row 0-5, max col 0-20
   oled.print(number,decimals);
   if(update) oled.sendBuffer();
+}
+
+//waits and returns which button (1,2,3) was pressed ---------------------------
+uint8_t getButton(){
+  uint16_t input = 1023;
+  while(input > 850){
+    input = analogRead(buttons);
+    delay(50);
+  }
+  if(input <= 150) return 1;
+  if(input > 150 && input <= 450) return 2;
+  if(input > 450 && input <= 850) return 3;
 }
