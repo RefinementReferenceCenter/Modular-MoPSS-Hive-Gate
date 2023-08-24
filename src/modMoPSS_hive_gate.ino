@@ -64,6 +64,8 @@ EthernetUDP udp;
 uint8_t buf[48];
 float RTC_drift = 100; //difference between RTC and NTP time
 
+uint32_t ntpfetchtime = 0;
+
 //----- declaring variables ----------------------------------------------------
 //Current Version of the program
 const char SOFTWARE_REV[] = "v1.0.0";
@@ -93,7 +95,7 @@ U8G2_SSD1306_128X64_NONAME_F_HW_I2C oled(U8G2_R0,U8X8_PIN_NONE,23,22); //def,res
 uint32_t displaytime = 0;         //stores millis to time display refresh
 uint8_t displayon = 1;            //flag to en/disable display
 
-int once = 2;
+int once = 0;
 
 //##############################################################################
 //#####   S E T U P   ##########################################################
@@ -228,134 +230,170 @@ void loop(){
 
   digitalWriteFast(statusLED,HIGH); // server ~2.45ms
 
+  if((millis() - ntpfetchtime) >= 10000){
+    ntpfetchtime = millis();
+
+    //Fetch NTP time and update RTC
+    // Set the Transmit Timestamp
+    uint32_t send_lt = Teensy3Clock.get();  //send local time
+    if (send_lt >= kBreakTime) {
+      send_lt -= kBreakTime;
+    } else {
+      send_lt += kEpochDiff;
+    }
+    uint32_t send_lt_frac15 = readRTCfrac(); //fractions of seconds 0 - 2^15
+    
+    // Send the packet
+    Serial.println("--- Sending NTP request to the gateway...");
+    elapsedMicros looptimemc;
+    if (!udp.send("de.pool.ntp.org", 123, buf, 48)) { //server address, port, data, length
+      Serial.println("ERROR.");
+    }
+    elapsedMillis timeout;
+    while((udp.parsePacket() < 0) && (timeout < 200)); //returns size of packet or <= 0 if no packet
+
+    const uint8_t *buf = udp.data(); //returns pointer to received package data
+
+    //check if the data we received is according to spec
+    int mode = buf[0] & 0x07;
+    if (((buf[0] & 0xc0) == 0xc0) ||  // LI == 3 (Alarm condition)
+        (buf[1] == 0) ||              // Stratum == 0 (Kiss-o'-Death)
+        !(mode == 4 || mode == 5)) {  // Must be Server or Broadcast mode
+      Serial.println("Discarding reply, other stuff\r\n");
+      return;
+    }
+
+    //seconds and fractions when NTP received request
+    uint32_t receive_st        = (uint32_t{buf[32]} << 24) | (uint32_t{buf[33]} << 16) | (uint32_t{buf[34]} << 8) | uint32_t{buf[35]};
+    uint32_t receive_st_frac32 = (uint32_t{buf[36]} << 24) | (uint32_t{buf[37]} << 16) | (uint32_t{buf[38]} << 8) | uint32_t{buf[39]};
+    //seconds and fractions when NTP sent
+    uint32_t send_st        = (uint32_t{buf[40]} << 24) | (uint32_t{buf[41]} << 16) | (uint32_t{buf[42]} << 8) | uint32_t{buf[43]};
+    uint32_t send_st_frac32 = (uint32_t{buf[44]} << 24) | (uint32_t{buf[45]} << 16) | (uint32_t{buf[46]} << 8) | uint32_t{buf[47]};
+    //seconds and fractions of local clock when NTP packet is received 
+    uint32_t receive_lt = Teensy3Clock.get();
+    uint32_t receive_lt_frac15 = readRTCfrac();
+    uint32_t looptimebuffer = looptimemc;
 
 
-  //Fetch NTP time and update RTC
-  // Set the Transmit Timestamp
-  uint32_t send_lt = Teensy3Clock.get();  //send local time
-  if (send_lt >= kBreakTime) {
-    send_lt -= kBreakTime;
-  } else {
-    send_lt += kEpochDiff;
+    if (send_st == 0) {
+      Serial.println("Discarding reply, time 0\r\n");
+      return;  // Also discard when the Transmit Timestamp is zero
+    }
+
+    // See: Section 3, "NTP Timestamp Format"
+    if ((send_lt & 0x80000000U) == 0) {
+      send_lt += kBreakTime;
+    } else {
+      send_lt -= kEpochDiff;
+    }
+    if ((send_st & 0x80000000U) == 0) {
+      send_st += kBreakTime;
+    } else {
+      send_st -= kEpochDiff;
+    }
+    if ((receive_st & 0x80000000U) == 0) {
+      receive_st += kBreakTime;
+    } else {
+      receive_st -= kEpochDiff;
+    }
+
+    //calculate time between sending and receiving NTP packet to adjust for network delay
+    float loop_t_ms = (float)(receive_lt_frac15 - send_lt_frac15)/32768 * 1000;
+
+    //time between send and receive, assume send/receive takes same time, factor in server time
+    uint32_t adjust = ((receive_lt_frac15 - send_lt_frac15) + ((send_st_frac32 - receive_st_frac32) >> 17)) >> 1; 
+
+    // Set the RTC and time ~0.95 ms
+    if((once % 6) == 0){
+      rtc_set_secs_and_frac(send_st,(send_st_frac32 >> 17) + adjust); //set time and adjust for transmit delay
+      Serial.println("--- time adjusted ---");
+    }
+    once ++;
+    //read time from adjusted RTC
+    uint32_t adjust_lt = Teensy3Clock.get();
+    uint32_t adjust_lt_frac15 = readRTCfrac();
+
+    //Format time for printing
+    tmElements_t slt; //send local time split
+    breakTime(send_lt, slt);
+    float slt_ms = ((float)send_lt_frac15/32768) * 1000; //convert fractions to milliseconds
+
+    tmElements_t rst;
+    breakTime(receive_st, rst);
+    float rst_ms = ((float)receive_st_frac32/UINT32_MAX) * 1000;
+
+    tmElements_t sst;
+    breakTime(send_st, sst);
+    float sst_ms  = ((float)send_st_frac32/UINT32_MAX) * 1000;
+
+    tmElements_t rlt;
+    breakTime(receive_lt, rlt);
+    float rlt_ms = ((float)receive_lt_frac15/32768) * 1000;
+    
+    tmElements_t alt;
+    breakTime(adjust_lt, alt);
+    float alt_ms = ((float)adjust_lt_frac15/32768) * 1000;
+
+    RTC_drift = (((float)receive_lt_frac15/32768) * 1000) - (((float)((send_st_frac32 >> 17) + adjust)/32768) * 1000);
+
+
+    Serial.printf("loc send: %04u-%02u-%02u %02u:%02u:%02u.%02f\r\n", slt.Year + 1970, slt.Month, slt.Day, slt.Hour, slt.Minute, slt.Second, slt_ms);
+    Serial.printf("NTP rec.: %04u-%02u-%02u %02u:%02u:%02u.%02f\r\n", rst.Year + 1970, rst.Month, rst.Day, rst.Hour, rst.Minute, rst.Second, rst_ms);
+    Serial.printf("NTP send: %04u-%02u-%02u %02u:%02u:%02u.%02f\r\n", sst.Year + 1970, sst.Month, sst.Day, sst.Hour, sst.Minute, sst.Second, sst_ms);
+    Serial.printf("loc rec.: %04u-%02u-%02u %02u:%02u:%02u.%02f\r\n", rlt.Year + 1970, rlt.Month, rlt.Day, rlt.Hour, rlt.Minute, rlt.Second, rlt_ms);
+    Serial.printf("loc adj.: %04u-%02u-%02u %02u:%02u:%02u.%02f\r\n", alt.Year + 1970, alt.Month, alt.Day, alt.Hour, alt.Minute, alt.Second, alt_ms);
+    
+    Serial.print("RTC diff from NTP (ms): ");
+    Serial.println(RTC_drift);
+    
+    Serial.print("Loop time RTC:    ");
+    Serial.println(loop_t_ms);
+    Serial.print("Loop time micros: ");
+    Serial.println((float)looptimebuffer/1000);
+
+    Serial.print("Adjust time: ");
+    Serial.println(((float)adjust)/32768 * 1000);
+    Serial.println();
   }
-  uint32_t send_lt_frac15 = readRTCfrac(); //fractions of seconds 0 - 2^15
-  
-
-  // Send the packet
-  Serial.println("--- Sending NTP request to the gateway...");
-  elapsedMicros looptimemc;
-  if (!udp.send("de.pool.ntp.org", 123, buf, 48)) { //server address, port, data, length
-    Serial.println("ERROR.");
-  }
-  elapsedMillis timeout;
-  while((udp.parsePacket() < 0) && (timeout < 200)); //returns size of packet or <= 0 if no packet
-
-  const uint8_t *buf = udp.data(); //returns pointer to received package data
-
-  //check if the data we received is according to spec
-  int mode = buf[0] & 0x07;
-  if (((buf[0] & 0xc0) == 0xc0) ||  // LI == 3 (Alarm condition)
-      (buf[1] == 0) ||              // Stratum == 0 (Kiss-o'-Death)
-      !(mode == 4 || mode == 5)) {  // Must be Server or Broadcast mode
-    Serial.println("Discarding reply, other stuff\r\n");
-    return;
-  }
-
-  //seconds and fractions when NTP received request
-  uint32_t receive_st        = (uint32_t{buf[32]} << 24) | (uint32_t{buf[33]} << 16) | (uint32_t{buf[34]} << 8) | uint32_t{buf[35]};
-  uint32_t receive_st_frac32 = (uint32_t{buf[36]} << 24) | (uint32_t{buf[37]} << 16) | (uint32_t{buf[38]} << 8) | uint32_t{buf[39]};
-  //seconds and fractions when NTP sent
-  uint32_t send_st        = (uint32_t{buf[40]} << 24) | (uint32_t{buf[41]} << 16) | (uint32_t{buf[42]} << 8) | uint32_t{buf[43]};
-  uint32_t send_st_frac32 = (uint32_t{buf[44]} << 24) | (uint32_t{buf[45]} << 16) | (uint32_t{buf[46]} << 8) | uint32_t{buf[47]};
-  //seconds and fractions of local clock when NTP packet is received 
-  uint32_t receive_lt = Teensy3Clock.get();
-  uint32_t receive_lt_frac15 = readRTCfrac();
-  uint32_t looptimebuffer = looptimemc;
-
-
-  if (send_st == 0) {
-    Serial.println("Discarding reply, time 0\r\n");
-    return;  // Also discard when the Transmit Timestamp is zero
-  }
-
-  // See: Section 3, "NTP Timestamp Format"
-  if ((send_lt & 0x80000000U) == 0) {
-    send_lt += kBreakTime;
-  } else {
-    send_lt -= kEpochDiff;
-  }
-  if ((send_st & 0x80000000U) == 0) {
-    send_st += kBreakTime;
-  } else {
-    send_st -= kEpochDiff;
-  }
-  if ((receive_st & 0x80000000U) == 0) {
-    receive_st += kBreakTime;
-  } else {
-    receive_st -= kEpochDiff;
-  }
-
-  //calculate time between sending and receiving NTP packet to adjust for network delay
-  float loop_t_ms = (float)(receive_lt_frac15 - send_lt_frac15)/32768 * 1000;
-
-  //time between send and receive, assume send/receive takes same time, factor in server time
-  uint32_t adjust = ((receive_lt_frac15 - send_lt_frac15) + ((send_st_frac32 - receive_st_frac32) >> 17)) >> 1; 
-
-  // Set the RTC and time ~0.95 ms
-  if(once > 0){
-    once -= 1;
-    rtc_set_secs_and_frac(send_st,(send_st_frac32 >> 17) + adjust); //set time and adjust for transmit delay
-    Serial.println("time adjusted");
-  }
-  //read time from adjusted RTC
-  uint32_t adjust_lt = Teensy3Clock.get();
-  uint32_t adjust_lt_frac15 = readRTCfrac();
-
-  //Format time for printing
-  tmElements_t slt; //send local time split
-  breakTime(send_lt, slt);
-  float slt_ms = ((float)send_lt_frac15/32768) * 1000; //convert fractions to milliseconds
-
-  tmElements_t rst;
-  breakTime(receive_st, rst);
-  float rst_ms = ((float)receive_st_frac32/UINT32_MAX) * 1000;
-
-  tmElements_t sst;
-  breakTime(send_st, sst);
-  float sst_ms  = ((float)send_st_frac32/UINT32_MAX) * 1000;
-
-  tmElements_t rlt;
-  breakTime(receive_lt, rlt);
-  float rlt_ms = ((float)receive_lt_frac15/32768) * 1000;
-  
-  tmElements_t alt;
-  breakTime(adjust_lt, alt);
-  float alt_ms = ((float)adjust_lt_frac15/32768) * 1000;
-
-  float RTC_drift = (((float)receive_lt_frac15/32768) * 1000) - (((float)((send_st_frac32 >> 17) + adjust)/32768) * 1000);
-
-
-  Serial.printf("loc send: %04u-%02u-%02u %02u:%02u:%02u.%02f\r\n", slt.Year + 1970, slt.Month, slt.Day, slt.Hour, slt.Minute, slt.Second, slt_ms);
-  Serial.printf("NTP rec.: %04u-%02u-%02u %02u:%02u:%02u.%02f\r\n", rst.Year + 1970, rst.Month, rst.Day, rst.Hour, rst.Minute, rst.Second, rst_ms);
-  Serial.printf("NTP send: %04u-%02u-%02u %02u:%02u:%02u.%02f\r\n", sst.Year + 1970, sst.Month, sst.Day, sst.Hour, sst.Minute, sst.Second, sst_ms);
-  Serial.printf("loc rec.: %04u-%02u-%02u %02u:%02u:%02u.%02f\r\n", rlt.Year + 1970, rlt.Month, rlt.Day, rlt.Hour, rlt.Minute, rlt.Second, rlt_ms);
-  Serial.printf("loc adj.: %04u-%02u-%02u %02u:%02u:%02u.%02f\r\n", alt.Year + 1970, alt.Month, alt.Day, alt.Hour, alt.Minute, alt.Second, alt_ms);
-  
-  Serial.print("RTC diff from NTP (ms): ");
-  Serial.println(RTC_drift);
-  
-  Serial.print("Loop time RTC:    ");
-  Serial.println(loop_t_ms);
-  Serial.print("Loop time micros: ");
-  Serial.println((float)looptimebuffer/1000);
-
-  Serial.print("Adjust time: ");
-  Serial.println(((float)adjust)/32768 * 1000);
-
-
   digitalWriteFast(statusLED,LOW);
-  delay(10'000); //being nice to ntp server
 
+  //##### Display #####
+  if(((millis() - displaytime) >= 1000) && (readRTCfrac() <= 1638)){ //1638 = 50ms
+    displaytime = millis();
+    digitalWriteFast(errorLED,HIGH);
+
+    oled.clearBuffer(); //clear display
+
+    time_t rtctime = now(); //create nice date string
+    uint8_t D = day(rtctime);
+    uint8_t M = month(rtctime);
+    String nDate = "";
+
+    if(D < 10) nDate += "0";
+    nDate += D;
+    nDate += "-";
+    if(M < 10) nDate += "0";
+    nDate += M;
+    nDate += "-";
+    nDate += year(rtctime);
+
+    //display current time from RTC and date
+    OLEDprint(0,0,0,0,nicetime(rtctime));
+    //OLEDprint(0,11,0,0,nDate);
+    float timefrac = ((float)readRTCfrac()/32768) * 1000;
+    OLEDprintFraction(0,11,0,0,timefrac,2);
+    OLEDprint(1,0,0,0,"RTC drift");
+    OLEDprintFraction(1,10,0,0,RTC_drift,2);
+
+    // Serial.print("- ");
+    // Serial.print(timefrac);
+    // Serial.print(" - ");
+    // Serial.print(RTC_drift);
+    // Serial.println(" -");
+    //update display
+    oled.sendBuffer();
+    digitalWriteFast(errorLED,LOW);
+  }
 
 } //end of loop
 
@@ -432,12 +470,6 @@ void rtc_set_secs_and_frac(uint32_t secs, uint32_t frac)
 	// start the RTC and sync it to the SRTC
 	SNVS_HPCR |= SNVS_HPCR_RTC_EN | SNVS_HPCR_HP_TS;
 }
-
-
-//0b1'11111111'11111111
-
-
-
 
 //Get Time from internal RTC (updated on program upload) -----------------------
 time_t getTeensy3Time(){
