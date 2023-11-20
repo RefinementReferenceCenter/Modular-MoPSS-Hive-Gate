@@ -30,7 +30,7 @@ D12 - MISO
 D13 - SCK
 D18 - SDA
 D19 - SCL
-
+ 
 --- Experimental Setup ---
 
 ^^^^^^^\                                                         /^^^^^^^^
