@@ -1,4 +1,4 @@
-/*------------------------------------------------------------------------------
+/*------------------------------------------------------------------------------x
 - PJRC Teensy 4.1 (with ethernet) pin mapping - Hardware Revision v7.1
 
 - dual-infrared 4-pin lightbarrier connectors (S|S|GND|+12V)
