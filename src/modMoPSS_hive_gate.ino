@@ -230,7 +230,7 @@ void loop(){
 
   digitalWriteFast(statusLED,HIGH); // server ~2.45ms
 
-  if((millis() - ntpfetchtime) >= 10000){
+  if((millis() - ntpfetchtime) >= 8010){
     ntpfetchtime = millis();
 
     //Fetch NTP time and update RTC
@@ -298,11 +298,23 @@ void loop(){
     }
 
     //calculate time between sending and receiving NTP packet to adjust for network delay
-    float loop_t_ms = (float)(receive_lt_frac15 - send_lt_frac15)/32768 * 1000;
-
+    if(receive_lt_frac15 < send_lt_frac15){ //account for overflow
+      receive_lt_frac15 = 32768 + receive_lt_frac15;
+    }
+    uint32_t loop_t_frac15 = receive_lt_frac15 - send_lt_frac15;
+    
+    if(receive_st_frac32 > send_st_frac32){
+      receive_st_frac32 = receive_st_frac32 + UINT32_MAX;
+      send_st = send_st + 1;
+    }
+    
+    
     //time between send and receive, assume send/receive takes same time, factor in server time
-    uint32_t adjust = ((receive_lt_frac15 - send_lt_frac15) + ((send_st_frac32 - receive_st_frac32) >> 17)) >> 1; 
-
+    //uint32_t adjust = ((receive_lt_frac15 - send_lt_frac15) + ((send_st_frac32 - receive_st_frac32) >> 17)) >> 1; //calculate difference and divide by 2
+    uint32_t adjust = (loop_t_frac15 + ((send_st_frac32 - receive_st_frac32) >> 17)) >> 1; //calculate difference and divide by 2
+    //TODO sekundenoffset!
+    
+    
     // Set the RTC and time ~0.95 ms
     if((once % 6) == 0){
       rtc_set_secs_and_frac(send_st,(send_st_frac32 >> 17) + adjust); //set time and adjust for transmit delay
@@ -312,20 +324,20 @@ void loop(){
     //read time from adjusted RTC
     uint32_t adjust_lt = Teensy3Clock.get();
     uint32_t adjust_lt_frac15 = readRTCfrac();
-
+    
     //Format time for printing
     tmElements_t slt; //send local time split
     breakTime(send_lt, slt);
     float slt_ms = ((float)send_lt_frac15/32768) * 1000; //convert fractions to milliseconds
-
+    
     tmElements_t rst;
     breakTime(receive_st, rst);
     float rst_ms = ((float)receive_st_frac32/UINT32_MAX) * 1000;
-
+    
     tmElements_t sst;
     breakTime(send_st, sst);
     float sst_ms  = ((float)send_st_frac32/UINT32_MAX) * 1000;
-
+    
     tmElements_t rlt;
     breakTime(receive_lt, rlt);
     float rlt_ms = ((float)receive_lt_frac15/32768) * 1000;
@@ -333,10 +345,11 @@ void loop(){
     tmElements_t alt;
     breakTime(adjust_lt, alt);
     float alt_ms = ((float)adjust_lt_frac15/32768) * 1000;
-
+    
     RTC_drift = (((float)receive_lt_frac15/32768) * 1000) - (((float)((send_st_frac32 >> 17) + adjust)/32768) * 1000);
-
-
+    
+    float loop_t_ms = (float)loop_t_frac15/32768 * 1000;
+    
     Serial.printf("loc send: %04u-%02u-%02u %02u:%02u:%02u.%02f\r\n", slt.Year + 1970, slt.Month, slt.Day, slt.Hour, slt.Minute, slt.Second, slt_ms);
     Serial.printf("NTP rec.: %04u-%02u-%02u %02u:%02u:%02u.%02f\r\n", rst.Year + 1970, rst.Month, rst.Day, rst.Hour, rst.Minute, rst.Second, rst_ms);
     Serial.printf("NTP send: %04u-%02u-%02u %02u:%02u:%02u.%02f\r\n", sst.Year + 1970, sst.Month, sst.Day, sst.Hour, sst.Minute, sst.Second, sst_ms);
@@ -358,7 +371,7 @@ void loop(){
   digitalWriteFast(statusLED,LOW);
 
   //##### Display #####
-  if(((millis() - displaytime) >= 1000) && (readRTCfrac() <= 1638)){ //1638 = 50ms
+  if(((millis() - displaytime) >= 1000) && (readRTCfrac() <= 328)){ //1638 = 50ms, 328 10ms
     displaytime = millis();
     digitalWriteFast(errorLED,HIGH);
 
