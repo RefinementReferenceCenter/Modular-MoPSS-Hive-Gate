@@ -2,18 +2,18 @@
 - PJRC Teensy 4.1 (with ethernet) pin mapping - Hardware Revision v7.0
 
 - dual-infrared lightbarrier connectors (S|S|GND|+12V)
-D36,D37 - X1 infrared barrier 1
-A14,A15 - X2 infrared barrier 2
-A11,A10 - X3 infrared barrier 3
-A16,A17 - X4 infrared barrier 4
+D36,D37 - X1
+A14,A15 - X2
+A11,A10 - X3
+A16,A17 - X4
 A1,A0   - X5
 A6,A7   - X6
 A8,A9   - X7
 D3,D2   - X8
 
 - multi-purpose 3-pin connectors (+12V|GND|Signal)
-D29 - J1  fan 1 
-D28 - J2  fan 2
+D29 - J1
+D28 - J2
 D33 - J3
 D9  - J4
 D8  - J5
@@ -29,18 +29,6 @@ D12 - MISO
 D13 - SCK
 D18 - SDA
 D19 - SCL
-
---- Experimental Setup ---
-
-^^^^^^^\                                                         /^^^^^^^^
-       |                  H                   T                  |
-h  c   |     |R|    |I| | C |   |I|   |I|   | C | |I|    |R|     |    t  c
-o  a ––|–––––|F|––––|R|–| D |–––|R|---|R|---| D |–|R|––––|F|–––––|––  e  a
-m  g   |     |I|    | | | O |   | |   | |   | O | | |    |I|     |    s  g
-e  e ––|–––––|D|––––| |-| O |–––| |---| |---| O |–| |––––|D|–––––|––  t  e
-       |     |1|    |1| | R |   |3|   |4|   | R | |2|    |2|     |
-       |                                                         |
-_______/                  |-----   X cm  -----|                  \________
 
 *///----------------------------------------------------------------------------
 #include <TimeLib.h>  //Manage Real Time CLock
@@ -107,7 +95,6 @@ void setup(){
   pinMode(34,OUTPUT);
   pinMode(statusLED,OUTPUT);
   pinMode(errorLED,OUTPUT);
-  
   
   //start I2C
   Wire.begin();
@@ -230,9 +217,9 @@ void loop(){
 
   digitalWriteFast(statusLED,HIGH); // server ~2.45ms
 
-  if((millis() - ntpfetchtime) >= 8010){
+  if((millis() - ntpfetchtime) >= 60000){
     ntpfetchtime = millis();
-
+    
     //Fetch NTP time and update RTC
     // Set the Transmit Timestamp
     uint32_t send_lt = Teensy3Clock.get();  //send local time
@@ -246,7 +233,8 @@ void loop(){
     // Send the packet
     Serial.println("--- Sending NTP request to the gateway...");
     elapsedMicros looptimemc;
-    if (!udp.send("de.pool.ntp.org", 123, buf, 48)) { //server address, port, data, length
+    //if (!udp.send("de.pool.ntp.org", 123, buf, 48)) { //server address, port, data, length
+    if (!udp.send("fritz.box", 123, buf, 48)) { //server address, port, data, length
       Serial.println("ERROR.");
     }
     elapsedMillis timeout;
@@ -262,7 +250,7 @@ void loop(){
       Serial.println("Discarding reply, other stuff\r\n");
       return;
     }
-
+    
     //seconds and fractions when NTP received request
     uint32_t receive_st        = (uint32_t{buf[32]} << 24) | (uint32_t{buf[33]} << 16) | (uint32_t{buf[34]} << 8) | uint32_t{buf[35]};
     uint32_t receive_st_frac32 = (uint32_t{buf[36]} << 24) | (uint32_t{buf[37]} << 16) | (uint32_t{buf[38]} << 8) | uint32_t{buf[39]};
@@ -314,9 +302,8 @@ void loop(){
     uint32_t adjust = (loop_t_frac15 + ((send_st_frac32 - receive_st_frac32) >> 17)) >> 1; //calculate difference and divide by 2
     //TODO sekundenoffset!
     
-    
     // Set the RTC and time ~0.95 ms
-    if((once % 6) == 0){
+    if((once % 60) == 0){
       rtc_set_secs_and_frac(send_st,(send_st_frac32 >> 17) + adjust); //set time and adjust for transmit delay
       Serial.println("--- time adjusted ---");
     }
@@ -371,10 +358,11 @@ void loop(){
   digitalWriteFast(statusLED,LOW);
 
   //##### Display #####
-  if(((millis() - displaytime) >= 1000) && (readRTCfrac() <= 328)){ //1638 = 50ms, 328 10ms
+  if(((millis() - displaytime) >= 100)  && (readRTCfrac() <= 328)){ //1638 = 50ms, 328 10ms
     displaytime = millis();
     digitalWriteFast(errorLED,HIGH);
-
+    
+    
     oled.clearBuffer(); //clear display
 
     time_t rtctime = now(); //create nice date string
@@ -404,6 +392,7 @@ void loop(){
     // Serial.print(RTC_drift);
     // Serial.println(" -");
     //update display
+
     oled.sendBuffer();
     digitalWriteFast(errorLED,LOW);
   }
