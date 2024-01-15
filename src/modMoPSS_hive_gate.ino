@@ -60,6 +60,21 @@ elapsedMillis NTPsynctime; //time since last ntp sync in ms
 //de.pool.ntp.org took in tests about ~200ms to respond to the ntp request vs fritz.box ~3ms
 const char NTPserver[] = "fritz.box";
 
+//NTP printing stuff
+tmElements_t slt;
+float slt_ms;
+tmElements_t rst;
+float rst_ms;
+tmElements_t sst;
+float sst_ms;
+tmElements_t rlt;
+float rlt_ms;
+tmElements_t alt;
+float alt_ms;
+float loop_t_ms;
+float server_res_t;
+
+
 //I2C addresses
 const uint8_t oledDisplay = 0x78; //I2C address oled display
 
@@ -79,6 +94,7 @@ FsFile dataFile;
 const uint8_t SDBcs = 44;   //Chip Select Internal SD
 SdFs SDb;
 FsFile dataFileBackup;
+uint32_t starttime;        //start of programm
 
 //Display
 U8G2_SSD1306_128X64_NONAME_F_HW_I2C oled(U8G2_R0,U8X8_PIN_NONE,23,22); //def,reset,SCL,SDA
@@ -86,6 +102,7 @@ uint32_t displaytime = 0;         //stores millis to time display refresh
 uint8_t displayon = 1;            //flag to en/disable display
 
 int once = 1;
+const uint8_t is_testing = 0;
 
 //##############################################################################
 //#####   S E T U P   ##########################################################
@@ -117,7 +134,96 @@ void setup(){
 
   //----- Real Time Clock ------------------------------------------------------
   setSyncProvider(getTeensy3Time);
+  
+  //----- Setup SD Card --------------------------------------------------------
+  //Stop program if uSDs are not detected/faulty (needs to be FAT/FAT32/exFAT format)
+  OLEDprint(0,0,1,1,">>>  uSD  Setup  <<<");
+  OLEDprint(1,0,0,1,"SD EXternal:"); //see if the cards are present and can be initialized
+  OLEDprint(2,0,0,1,"SD INternal:");
+  
+  //SD card external (main, for data collection)
+  if(!SD.begin(SDcs)){
+    OLEDprint(1,13,0,1,"FAIL!");
+    OLEDprint(5,0,0,1,"PROGRAM STOPPED");
+    criticalerror();
+  }
+  else{
+    Serial.println("External SD card initialized successfully!");
+    OLEDprint(1,13,0,1,"OK!");
+  }
+  //SD card internal (Backup)
+  if(!SDb.begin(SdioConfig(FIFO_SDIO))){ //internal SD Card
+    OLEDprint(2,13,0,1,"FAIL!");
+    OLEDprint(5,0,0,1,"PROGRAM STOPPED");
+    criticalerror();
+  }
+  else{
+    Serial.println("Internal SD card initialized successfully!");
+    OLEDprint(2,13,0,1,"OK!");
+  }
+  delay(1000);
 
+  //----- Setup log file, and write initial configuration ----------------------
+  dataFile = SD.open("RFIDLOG.TXT", FILE_WRITE); //open file, or create if empty
+  dataFileBackup = SDb.open("RFIDLOG_BACKUP.TXT", FILE_WRITE);
+  
+  starttime = now(); //get experiment start time
+
+  //write current version to SD and some other startup/system related information
+  dataFile.println("");
+  dataFile.print("# Modular MoPSS Hive version: ");
+  dataFile.println(SOFTWARE_REV);
+  
+  dataFile.print("# System start @ ");
+  dataFile.print(nicetime(starttime));
+  dataFile.print(" ");
+  dataFile.print(day(starttime));
+  dataFile.print("-");
+  dataFile.print(month(starttime));
+  dataFile.print("-");
+  dataFile.println(year(starttime));
+  dataFile.print("# Unixtime: ");
+  dataFile.println(starttime);
+  dataFile.println();
+
+  dataFile.flush();
+
+  //and same for backup SD
+  dataFileBackup.println("");
+  dataFileBackup.print("# Modular MoPSS Hive version: ");
+  dataFileBackup.println(SOFTWARE_REV);
+  
+  dataFileBackup.print("# System start @ ");
+  dataFileBackup.print(nicetime(starttime));
+  dataFileBackup.print(" ");
+  dataFileBackup.print(day(starttime));
+  dataFileBackup.print("-");
+  dataFileBackup.print(month(starttime));
+  dataFileBackup.print("-");
+  dataFileBackup.println(year(starttime));
+  dataFileBackup.print("# Unixtime: ");
+  dataFileBackup.println(starttime);
+  dataFileBackup.println();
+
+  dataFileBackup.flush();
+  
+  //output start log to console
+  if(is_testing){
+    Serial.print("# Modular MoPSS Hive version: ");
+    Serial.println(SOFTWARE_REV);
+    
+    Serial.print("# System start @ ");
+    Serial.print(nicetime(starttime));
+    Serial.print(" ");
+    Serial.print(day(starttime));
+    Serial.print("-");
+    Serial.print(month(starttime));
+    Serial.print("-");
+    Serial.println(year(starttime));
+    Serial.print("# Unixtime: ");
+    Serial.println(starttime);
+    Serial.println();
+  }
   //----- Ethernet -------------------------------------------------------------
   //fetch mac address
   Serial.println("Fetching mac address...");
@@ -216,25 +322,49 @@ void setup(){
 //#####   L O O P   ############################################################
 //##############################################################################
 void loop(){
-
-  digitalWriteFast(statusLED,HIGH); // server ~2.45ms
+  
+  String MISCdataString = ""; //holds info of time sync events
   
   if(once){
     NTPsync();
-    delay(5000);
-    NTPsync();
-    delay(5000);
+    // delay(5000);
+    // NTPsync();
+    // delay(5000);
     once = 0;
   }
   
   //NTP sync at the full hour, or if we missed it after one hour
-  //if((((Teensy3Clock.get() % 60) == 0) && (NTPsynctime > 2000)) || (NTPsynctime > 1000 * 60 + 2)){
-  if((((Teensy3Clock.get() % 3600) == 0) && (NTPsynctime > 2000)) || (NTPsynctime > 1000 * 60 * 60 + 10)){ //sync at full hour or when 1h + 10 sec. has passed
-    Serial.print("sync! ");
-    Serial.print(NTPsynctime);
+  //if((((Teensy3Clock.get() % 10) == 0) && (NTPsynctime > 2000)) || (NTPsynctime > 1000 * 60 + 2)){  //sync at the full minute
+  if((((Teensy3Clock.get() % 3600) == 0) && (NTPsynctime > 2000)) || (NTPsynctime > 1000 * 60 * 60 + 30)){ //sync at full hour or when 1h + 30 sec. has passed
+    createMISCDataString("NTP","last sync ms ago",String(NTPsynctime),MISCdataString);
+    
     uint8_t NTPstate = NTPsync();
-    if(NTPstate) NTPsynctime = 50002; //check again in 10 seconds if we didn't get a response
-    else NTPsynctime = 0;
+    if(NTPstate){
+      NTPsynctime = 10002; //check again in 10 seconds if we didn't get a response
+      MISCdataString = createMISCDataString("NTP","Error return code",NTPstate,MISCdataString);
+    }
+    else{
+      NTPsynctime = 0;
+      
+      char timeinfo[37];
+      sprintf(timeinfo, "loc send: %04u-%02u-%2u %02u:%02u:%02u-%06.2f",slt.Year + 1970,slt.Month,slt.Day,slt.Hour,slt.Minute,slt.Second,slt_ms);
+      MISCdataString = createMISCDataString("NTP",timeinfo,NTPstate,MISCdataString);
+      sprintf(timeinfo, "NTP rec.: %04u-%02u-%2u %02u:%02u:%02u-%06.2f",rst.Year + 1970,rst.Month,rst.Day,rst.Hour,rst.Minute,rst.Second,rst_ms);
+      MISCdataString = createMISCDataString("NTP",timeinfo,NTPstate,MISCdataString);
+      sprintf(timeinfo, "NTP send: %04u-%02u-%2u %02u:%02u:%02u-%06.2f",sst.Year + 1970,sst.Month,sst.Day,sst.Hour,sst.Minute,sst.Second,sst_ms);
+      MISCdataString = createMISCDataString("NTP",timeinfo,NTPstate,MISCdataString);
+      sprintf(timeinfo, "loc rec.: %04u-%02u-%2u %02u:%02u:%02u-%06.2f",rlt.Year + 1970,rlt.Month,rlt.Day,rlt.Hour,rlt.Minute,rlt.Second,rlt_ms);
+      MISCdataString = createMISCDataString("NTP",timeinfo,NTPstate,MISCdataString);
+      sprintf(timeinfo, "loc adj.: %04u-%02u-%2u %02u:%02u:%02u-%06.2f",alt.Year + 1970,alt.Month,alt.Day,alt.Hour,alt.Minute,alt.Second,alt_ms);
+      MISCdataString = createMISCDataString("NTP",timeinfo,NTPstate,MISCdataString);
+      
+      sprintf(timeinfo, "RTC diff from NTP (ms): %.2f",RTC_drift);
+      MISCdataString = createMISCDataString("NTP",timeinfo,NTPstate,MISCdataString);
+      sprintf(timeinfo, "Roundtrip time RTC ms: %.2f",loop_t_ms);
+      MISCdataString = createMISCDataString("NTP",timeinfo,NTPstate,MISCdataString);
+      sprintf(timeinfo, "time to server response ms: %.2f",server_res_t);
+      MISCdataString = createMISCDataString("NTP",timeinfo,NTPstate,MISCdataString);
+    }
   }
   
   digitalWriteFast(statusLED,LOW);
@@ -242,7 +372,7 @@ void loop(){
   //##### Display #####
   if(((millis() - displaytime) >= 100)  && (readRTCfrac() <= 328)){ //1638 = 50ms, 328 10ms
     displaytime = millis();
-    digitalWriteFast(errorLED,HIGH);
+    digitalWriteFast(statusLED,HIGH);
     
     oled.clearBuffer(); //clear display
     
@@ -263,13 +393,22 @@ void loop(){
     OLEDprint(0,0,0,0,nicetime(rtctime));
     //OLEDprint(0,11,0,0,nDate);
     float timefrac = ((float)readRTCfrac()/32768) * 1000;
-    OLEDprintFraction(0,11,0,0,timefrac,2);
+    OLEDprintFraction(0,11,0,0,timefrac,3);
     OLEDprint(1,0,0,0,"RTC drift ms");
     OLEDprintFraction(1,13,0,0,RTC_drift,2);
 
     oled.sendBuffer();
-    digitalWriteFast(errorLED,LOW);
+    digitalWriteFast(statusLED,LOW);
   }
+  
+  //log MISC events
+  if(MISCdataString.length() != 0){
+		dataFile.println(MISCdataString);	//append Datastring to file
+		dataFile.flush();
+		dataFileBackup.println(MISCdataString);
+		dataFileBackup.flush();
+		Serial.println(MISCdataString);
+	}
 
 } //end of loop
 
@@ -419,7 +558,7 @@ uint8_t NTPsync(){
   //--- Send the packet
   if(!udp.send(NTPserver,NTPPort,ntpbuf,48)) Serial.println("ERROR sending ntp package"); //server address, port, data, length
   
-  elapsedMicros timeout;
+  elapsedMicros timeout;  //micros for benchmarking vs millis
   while((udp.parsePacket() < 0) && (timeout < 1000000));   //returns size of packet or <= 0 if no packet
   if(timeout >= 1000000){
     Serial.println("WARNING: no NTP package received"); //check if the receiving timed out
@@ -435,8 +574,8 @@ uint8_t NTPsync(){
     if(((ntpbuf[0] & 0xc0) == 0xc0) || //LI == 3 (Alarm condition)
       (ntpbuf[1] == 0) ||              //Stratum == 0 (Kiss-o'-Death)
       !(mode == 4 || mode == 5)) {     //Must be Server or Broadcast mode
-      Serial.println("Discarding reply, faulty");
-      return 1;
+      if(is_testing == 1) Serial.println("Discarding reply, faulty");
+      return 2;
     }
     
     //seconds and fractions when NTP received request
@@ -451,8 +590,8 @@ uint8_t NTPsync(){
     
     //Discard if reply empty, also discard when the Transmit Timestamp is zero
     if (send_st == 0) {
-      Serial.println("Discarding reply, time 0");
-      return 0;
+      if(is_testing == 1) Serial.println("Discarding reply, time 0");
+      return 3;
     }
 
     //See: Section 3, "NTP Timestamp Format"
@@ -486,53 +625,82 @@ uint8_t NTPsync(){
     uint32_t adjust_lt_frac15 = readRTCfrac();
     
     //Format time for printing
-    tmElements_t slt; //send local time split
+    //tmElements_t slt; //send local time split
     breakTime(send_lt, slt);
-    float slt_ms = ((float)send_lt_frac15/32768) * 1000; //convert fractions to milliseconds
+    slt_ms = ((float)send_lt_frac15/32768) * 1000; //convert fractions to milliseconds
     
-    tmElements_t rst;
+    //tmElements_t rst;
     breakTime(receive_st, rst);
-    float rst_ms = ((float)receive_st_frac32/UINT32_MAX) * 1000;
+    rst_ms = ((float)receive_st_frac32/UINT32_MAX) * 1000;
     
-    tmElements_t sst;
+    //tmElements_t sst;
     breakTime(send_st, sst);
-    float sst_ms  = ((float)send_st_frac32/UINT32_MAX) * 1000;
+    sst_ms  = ((float)send_st_frac32/UINT32_MAX) * 1000;
     
-    tmElements_t rlt;
+    //tmElements_t rlt;
     breakTime(receive_lt, rlt);
-    float rlt_ms = ((float)receive_lt_frac15/32768) * 1000;
+    rlt_ms = ((float)receive_lt_frac15/32768) * 1000;
     
-    tmElements_t alt;
+    //tmElements_t alt;
     breakTime(adjust_lt, alt);
-    float alt_ms = ((float)adjust_lt_frac15/32768) * 1000;
+    alt_ms = ((float)adjust_lt_frac15/32768) * 1000;
     
     RTC_drift = -((((float)receive_lt_frac15/32768) * 1000) - (((float)((send_st_frac32 >> 17) + adjust_frac15)/32768) * 1000) + ((receive_lt - adjust_lt) * 1000));
     
-    float loop_t_ms = (float)loop_t_frac15/32768 * 1000;
+    loop_t_ms = (float)loop_t_frac15/32768 * 1000;
     
-    Serial.printf("loc send: %04u-%02u-%02u %02u:%02u:%02u-%02f\r\n", slt.Year + 1970, slt.Month, slt.Day, slt.Hour, slt.Minute, slt.Second, slt_ms);
-    Serial.printf("NTP rec.: %04u-%02u-%02u %02u:%02u:%02u-%02f\r\n", rst.Year + 1970, rst.Month, rst.Day, rst.Hour, rst.Minute, rst.Second, rst_ms);
-    Serial.printf("NTP send: %04u-%02u-%02u %02u:%02u:%02u-%02f\r\n", sst.Year + 1970, sst.Month, sst.Day, sst.Hour, sst.Minute, sst.Second, sst_ms);
-    Serial.printf("loc rec.: %04u-%02u-%02u %02u:%02u:%02u-%02f\r\n", rlt.Year + 1970, rlt.Month, rlt.Day, rlt.Hour, rlt.Minute, rlt.Second, rlt_ms);
-    Serial.printf("loc adj.: %04u-%02u-%02u %02u:%02u:%02u-%02f\r\n", alt.Year + 1970, alt.Month, alt.Day, alt.Hour, alt.Minute, alt.Second, alt_ms);
-    
-    Serial.print("RTC diff from NTP (ms): ");
-    Serial.println(RTC_drift);
-    
-    Serial.print("Roundtrip time RTC ms:  ");
-    Serial.println(loop_t_ms);
+    if(is_testing == 1){
+      Serial.printf("loc send: %04u-%02u-%02u %02u:%02u:%02u-%02f\r\n", slt.Year + 1970, slt.Month, slt.Day, slt.Hour, slt.Minute, slt.Second, slt_ms);
+      Serial.printf("NTP rec.: %04u-%02u-%02u %02u:%02u:%02u-%02f\r\n", rst.Year + 1970, rst.Month, rst.Day, rst.Hour, rst.Minute, rst.Second, rst_ms);
+      Serial.printf("NTP send: %04u-%02u-%02u %02u:%02u:%02u-%02f\r\n", sst.Year + 1970, sst.Month, sst.Day, sst.Hour, sst.Minute, sst.Second, sst_ms);
+      Serial.printf("loc rec.: %04u-%02u-%02u %02u:%02u:%02u-%02f\r\n", rlt.Year + 1970, rlt.Month, rlt.Day, rlt.Hour, rlt.Minute, rlt.Second, rlt_ms);
+      Serial.printf("loc adj.: %04u-%02u-%02u %02u:%02u:%02u-%02f\r\n", alt.Year + 1970, alt.Month, alt.Day, alt.Hour, alt.Minute, alt.Second, alt_ms);
+      
+      Serial.print("RTC diff from NTP (ms): ");
+      Serial.println(RTC_drift);
+      
+      Serial.print("Roundtrip time RTC ms:  ");
+      Serial.println(loop_t_ms);
 
-    Serial.print("Add roundtrip delay ms: ");
-    Serial.println(((float)adjust_frac15)/32768 * 1000);
-    
-    Serial.print("time to server response ms ");
-    Serial.println((float)timeout/1000);
-    
-    Serial.println();
+      Serial.print("Add roundtrip delay ms: ");
+      Serial.println(((float)adjust_frac15)/32768 * 1000);
+      
+      Serial.print("time to server response ms ");
+      server_res_t = (float)timeout/1000;
+      Serial.println(server_res_t);
+      
+      Serial.println();
+    }
     
     return 0;
   }
 }
 
+//critical error, flash LED SOS, stop everything -------------------------------
+void criticalerror(){
+  while(1){
+    digitalWrite(errorLED,HIGH);
+    delay(200);
+    digitalWrite(errorLED,LOW);
+    delay(200);
+  }
+}
 
+//Create misc data String ------------------------------------------------------
+String createMISCDataString(String identifier, String event,String event2,String dataString){
+  time_t nowtime = now();
 
+  if(dataString != 0) dataString += "\n"; //if datastring is not empty, add newline
+  dataString += identifier;
+  dataString += ",";
+  dataString += event;
+  dataString += ",";
+  dataString += event2;
+  
+  // dataString += nowtime;
+  // dataString += ",";
+  // dataString += millis();
+  // dataString += ",";
+  
+  return dataString;
+}
