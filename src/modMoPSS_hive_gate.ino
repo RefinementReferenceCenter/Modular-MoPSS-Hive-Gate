@@ -104,6 +104,8 @@ uint8_t displayon = 1;            //flag to en/disable display
 int once = 1;
 const uint8_t is_testing = 0;
 
+uint32_t benchy;
+
 //##############################################################################
 //#####   S E T U P   ##########################################################
 //##############################################################################
@@ -326,7 +328,7 @@ void loop(){
   String MISCdataString = ""; //holds info of time sync events
   
   if(once){
-    NTPsync();
+    NTPsync(1);
     // delay(5000);
     // NTPsync();
     // delay(5000);
@@ -334,11 +336,12 @@ void loop(){
   }
   
   //NTP sync at the full hour, or if we missed it after one hour
-  //if((((Teensy3Clock.get() % 10) == 0) && (NTPsynctime > 2000)) || (NTPsynctime > 1000 * 60 + 2)){  //sync at the full minute
-  if((((Teensy3Clock.get() % 3600) == 0) && (NTPsynctime > 2000)) || (NTPsynctime > 1000 * 60 * 60 + 30)){ //sync at full hour or when 1h + 30 sec. has passed
-    createMISCDataString("NTP","last sync ms ago",String(NTPsynctime),MISCdataString);
+  if((((Teensy3Clock.get() % 10) == 0) && (NTPsynctime > 2000)) || (NTPsynctime > 1000 * 60 + 2)){  //sync at the full minute
+  //if((((Teensy3Clock.get() % 3600) == 0) && (NTPsynctime > 2000)) || (NTPsynctime > 1000 * 60 * 60 + 30)){ //sync at full hour or when 1h + 30 sec. has passed
+    MISCdataString = createMISCDataString("NTP","last sync ms ago",String(NTPsynctime),MISCdataString);
     
-    uint8_t NTPstate = NTPsync();
+    uint8_t NTPstate = NTPsync(1);
+    
     if(NTPstate){
       NTPsynctime = 10002; //check again in 10 seconds if we didn't get a response
       MISCdataString = createMISCDataString("NTP","Error return code",NTPstate,MISCdataString);
@@ -348,22 +351,19 @@ void loop(){
       
       char timeinfo[37];
       sprintf(timeinfo, "loc send: %04u-%02u-%2u %02u:%02u:%02u-%06.2f",slt.Year + 1970,slt.Month,slt.Day,slt.Hour,slt.Minute,slt.Second,slt_ms);
-      MISCdataString = createMISCDataString("NTP",timeinfo,NTPstate,MISCdataString);
+      MISCdataString = createMISCDataString("NTP",timeinfo,"",MISCdataString);
       sprintf(timeinfo, "NTP rec.: %04u-%02u-%2u %02u:%02u:%02u-%06.2f",rst.Year + 1970,rst.Month,rst.Day,rst.Hour,rst.Minute,rst.Second,rst_ms);
-      MISCdataString = createMISCDataString("NTP",timeinfo,NTPstate,MISCdataString);
+      MISCdataString = createMISCDataString("NTP",timeinfo,"",MISCdataString);
       sprintf(timeinfo, "NTP send: %04u-%02u-%2u %02u:%02u:%02u-%06.2f",sst.Year + 1970,sst.Month,sst.Day,sst.Hour,sst.Minute,sst.Second,sst_ms);
-      MISCdataString = createMISCDataString("NTP",timeinfo,NTPstate,MISCdataString);
+      MISCdataString = createMISCDataString("NTP",timeinfo,"",MISCdataString);
       sprintf(timeinfo, "loc rec.: %04u-%02u-%2u %02u:%02u:%02u-%06.2f",rlt.Year + 1970,rlt.Month,rlt.Day,rlt.Hour,rlt.Minute,rlt.Second,rlt_ms);
-      MISCdataString = createMISCDataString("NTP",timeinfo,NTPstate,MISCdataString);
+      MISCdataString = createMISCDataString("NTP",timeinfo,"",MISCdataString);
       sprintf(timeinfo, "loc adj.: %04u-%02u-%2u %02u:%02u:%02u-%06.2f",alt.Year + 1970,alt.Month,alt.Day,alt.Hour,alt.Minute,alt.Second,alt_ms);
-      MISCdataString = createMISCDataString("NTP",timeinfo,NTPstate,MISCdataString);
+      MISCdataString = createMISCDataString("NTP",timeinfo,"",MISCdataString);
       
-      sprintf(timeinfo, "RTC diff from NTP (ms): %.2f",RTC_drift);
-      MISCdataString = createMISCDataString("NTP",timeinfo,NTPstate,MISCdataString);
-      sprintf(timeinfo, "Roundtrip time RTC ms: %.2f",loop_t_ms);
-      MISCdataString = createMISCDataString("NTP",timeinfo,NTPstate,MISCdataString);
-      sprintf(timeinfo, "time to server response ms: %.2f",server_res_t);
-      MISCdataString = createMISCDataString("NTP",timeinfo,NTPstate,MISCdataString);
+      MISCdataString = createMISCDataString("NTP","RTC diff from NTP ms",RTC_drift,MISCdataString);
+      MISCdataString = createMISCDataString("NTP","Roundtrip time RTC ms",loop_t_ms,MISCdataString);
+      MISCdataString = createMISCDataString("NTP","time to server response ms",server_res_t,MISCdataString);
     }
   }
   
@@ -376,22 +376,9 @@ void loop(){
     
     oled.clearBuffer(); //clear display
     
-    time_t rtctime = now(); //create nice date string
-    uint8_t D = day(rtctime);
-    uint8_t M = month(rtctime);
-    String nDate = "";
-    
-    if(D < 10) nDate += "0";
-    nDate += D;
-    nDate += "-";
-    if(M < 10) nDate += "0";
-    nDate += M;
-    nDate += "-";
-    nDate += year(rtctime);
-    
     //display current time from RTC and date
-    OLEDprint(0,0,0,0,nicetime(rtctime));
-    //OLEDprint(0,11,0,0,nDate);
+    OLEDprint(0,0,0,0,nicetime(now()));
+    
     float timefrac = ((float)readRTCfrac()/32768) * 1000;
     OLEDprintFraction(0,11,0,0,timefrac,3);
     OLEDprint(1,0,0,0,"RTC drift ms");
@@ -449,8 +436,7 @@ int16_t readRTCfrac() //read fractional seconds from RTC 1/32768 sec.
   }
 }
 
-void rtc_set_64(uint64_t t)
-{
+void rtc_set_64(uint64_t t){
 	// stop the RTC
 	SNVS_HPCR &= ~(SNVS_HPCR_RTC_EN | SNVS_HPCR_HP_TS);
 	while (SNVS_HPCR & SNVS_HPCR_RTC_EN); // wait
@@ -459,7 +445,7 @@ void rtc_set_64(uint64_t t)
 	while (SNVS_LPCR & SNVS_LPCR_SRTC_ENV); // wait
 	// set the SRTC
 	SNVS_LPSRTCLR = t & 0xffffffff;
-        SNVS_LPSRTCMR = t >> 32;
+  SNVS_LPSRTCMR = t >> 32;
 	// start the SRTC
 	SNVS_LPCR |= SNVS_LPCR_SRTC_ENV;
 	while (!(SNVS_LPCR & SNVS_LPCR_SRTC_ENV)); // wait
@@ -544,24 +530,23 @@ uint8_t getButton(){
 }
 
 //Fetch NTP time and update RTC ------------------------------------------------
-uint8_t NTPsync(){
+uint8_t NTPsync(uint8_t update_time){
   
+  //Set the Transmit Timestamp < 0.001 ms
   while(udp.parsePacket() > 0); //clear any udp data left in the buffer
-  
-  //Set the Transmit Timestamp
-  Serial.println("--- Sending NTP request to the gateway..."); //nothing slow from here until time is written
+  if(is_testing == 1) Serial.println("--- Sending NTP request to the gateway..."); //nothing slow from here until time is written
   uint32_t send_lt = Teensy3Clock.get();  //get local time to send
   if(send_lt >= EBreakTime) send_lt -= EBreakTime;  //see epochs etc.
   else send_lt += EpochDiff;
   uint32_t send_lt_frac15 = readRTCfrac(); //fractions of seconds 0 - 2^15
   
-  //--- Send the packet
+  //--- Send the packet, dependent on server response time, with local network fritzbox this can take about ~8 ms (avg ~3 ms)
   if(!udp.send(NTPserver,NTPPort,ntpbuf,48)) Serial.println("ERROR sending ntp package"); //server address, port, data, length
   
   elapsedMicros timeout;  //micros for benchmarking vs millis
   while((udp.parsePacket() < 0) && (timeout < 1000000));   //returns size of packet or <= 0 if no packet
   if(timeout >= 1000000){
-    Serial.println("WARNING: no NTP package received"); //check if the receiving timed out
+    if(is_testing == 1) Serial.println("WARNING: no NTP package received"); //check if the receiving timed out
     return 1;
   }
   else{
@@ -569,7 +554,7 @@ uint8_t NTPsync(){
     
     const uint8_t *ntpbuf = udp.data(); //returns pointer to received package data
     
-    //check if the data we received is according to spec
+    //check if the data we received is according to spec < 0.001 ms
     int mode = ntpbuf[0] & 0x07;
     if(((ntpbuf[0] & 0xc0) == 0xc0) || //LI == 3 (Alarm condition)
       (ntpbuf[1] == 0) ||              //Stratum == 0 (Kiss-o'-Death)
@@ -578,7 +563,7 @@ uint8_t NTPsync(){
       return 2;
     }
     
-    //seconds and fractions when NTP received request
+    //seconds and fractions when NTP received request < 0.002 ms until adjusting time
     uint32_t receive_st        = (uint32_t{ntpbuf[32]} << 24) | (uint32_t{ntpbuf[33]} << 16) | (uint32_t{ntpbuf[34]} << 8) | uint32_t{ntpbuf[35]}; //receive server time
     uint32_t receive_st_frac32 = (uint32_t{ntpbuf[36]} << 24) | (uint32_t{ntpbuf[37]} << 16) | (uint32_t{ntpbuf[38]} << 8) | uint32_t{ntpbuf[39]};
     //seconds and fractions when NTP sent
@@ -616,11 +601,11 @@ uint8_t NTPsync(){
     //uint32_t adjust_frac15 = loop_t_frac15 >> 1; //calculate difference and divide by 2 simple loop time/2
     uint32_t adjust_frac15 = ((receive_lt_frac15 - send_lt_frac15 + rollover) - ((send_st_frac32 - receive_st_frac32) >> 17)) >> 1; //subtract server time
     
-    // Set the RTC and time ~0.95 ms
+    // Set the RTC and time ~0.98 ms ??
     if(((send_st_frac32 >> 17) + adjust_frac15) > 32767) send_st += 1; //account for frac overflow
-    rtc_set_secs_and_frac(send_st,(send_st_frac32 >> 17) + adjust_frac15); //set time and adjust for transmit delay, frac will only use lower 15bits
+    if(update_time) rtc_set_secs_and_frac(send_st,(send_st_frac32 >> 17) + adjust_frac15); //set time and adjust for transmit delay, frac will only use lower 15bits
     
-    //read time from adjusted RTC
+    //read time from adjusted RTC <0.007 ms until end
     uint32_t adjust_lt = Teensy3Clock.get();
     uint32_t adjust_lt_frac15 = readRTCfrac();
     
@@ -666,7 +651,7 @@ uint8_t NTPsync(){
       Serial.println(((float)adjust_frac15)/32768 * 1000);
       
       Serial.print("time to server response ms ");
-      server_res_t = (float)timeout/1000;
+      server_res_t = (float)timeout_buf/1000;
       Serial.println(server_res_t);
       
       Serial.println();
@@ -687,20 +672,19 @@ void criticalerror(){
 }
 
 //Create misc data String ------------------------------------------------------
-String createMISCDataString(String identifier, String event,String event2,String dataString){
-  time_t nowtime = now();
+String createMISCDataString(String identifier, String event1,String event2,String dataString){
+  time_t unixtime = now();
 
   if(dataString != 0) dataString += "\n"; //if datastring is not empty, add newline
   dataString += identifier;
   dataString += ",";
-  dataString += event;
+  dataString += unixtime;
+  dataString += ",";
+  dataString += millis();
+  dataString += ",";
+  dataString += event1;
   dataString += ",";
   dataString += event2;
-  
-  // dataString += nowtime;
-  // dataString += ",";
-  // dataString += millis();
-  // dataString += ",";
   
   return dataString;
 }
