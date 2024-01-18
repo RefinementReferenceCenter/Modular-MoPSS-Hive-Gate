@@ -59,6 +59,8 @@ elapsedMillis NTPsynctime; //time since last ntp sync in ms
 //fritz.box on local network is very fast and recommended
 //de.pool.ntp.org took in tests about ~200ms to respond to the ntp request vs fritz.box ~3ms
 const char NTPserver[] = "fritz.box";
+uint8_t do_sync = 0;       //used to control how often sync should actually happen
+uint32_t sync_counter = 0;
 
 //NTP printing stuff
 tmElements_t slt;
@@ -73,7 +75,6 @@ tmElements_t alt;
 float alt_ms;
 float loop_t_ms;
 float server_res_t;
-
 
 //I2C addresses
 const uint8_t oledDisplay = 0x78; //I2C address oled display
@@ -336,11 +337,15 @@ void loop(){
   }
   
   //NTP sync at the full hour, or if we missed it after one hour
-  if((((Teensy3Clock.get() % 10) == 0) && (NTPsynctime > 2000)) || (NTPsynctime > 1000 * 60 + 2)){  //sync at the full minute
-  //if((((Teensy3Clock.get() % 3600) == 0) && (NTPsynctime > 2000)) || (NTPsynctime > 1000 * 60 * 60 + 30)){ //sync at full hour or when 1h + 30 sec. has passed
+  //if((((Teensy3Clock.get() % 10) == 0) && (NTPsynctime > 2000)) || (NTPsynctime > 1000 * 60 + 2)){  //sync at the full minute
+  if((((Teensy3Clock.get() % 600) == 0) && (NTPsynctime > 2000)) || (NTPsynctime > 1000 * 60 * 10 + 30000)){ //sync at full hour or when 1h + 30 sec. has passed, log every 10 min.
     MISCdataString = createMISCDataString("NTP","last sync ms ago",String(NTPsynctime),MISCdataString);
     
-    uint8_t NTPstate = NTPsync(1);
+    
+    if((do_sync % 10) == 0) do_sync = 1;
+    else do_sync = 0;
+    uint8_t NTPstate = NTPsync(do_sync);
+    sync_counter++;
     
     if(NTPstate){
       NTPsynctime = 10002; //check again in 10 seconds if we didn't get a response
@@ -359,7 +364,7 @@ void loop(){
       sprintf(timeinfo, "loc rec.: %04u-%02u-%2u %02u:%02u:%02u-%06.2f",rlt.Year + 1970,rlt.Month,rlt.Day,rlt.Hour,rlt.Minute,rlt.Second,rlt_ms);
       MISCdataString = createMISCDataString("NTP",timeinfo,"",MISCdataString);
       sprintf(timeinfo, "loc adj.: %04u-%02u-%2u %02u:%02u:%02u-%06.2f",alt.Year + 1970,alt.Month,alt.Day,alt.Hour,alt.Minute,alt.Second,alt_ms);
-      MISCdataString = createMISCDataString("NTP",timeinfo,"",MISCdataString);
+      MISCdataString = createMISCDataString("NTP",timeinfo,do_sync,MISCdataString);
       
       MISCdataString = createMISCDataString("NTP","RTC diff from NTP ms",RTC_drift,MISCdataString);
       MISCdataString = createMISCDataString("NTP","Roundtrip time RTC ms",loop_t_ms,MISCdataString);
