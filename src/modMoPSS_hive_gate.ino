@@ -330,22 +330,22 @@ void loop(){
   
   if(once){
     NTPsync(1);
-    // delay(5000);
-    // NTPsync();
-    // delay(5000);
+    delay(5000);
+    NTPsync(1);
+    delay(5000);
     once = 0;
   }
   
   //NTP sync at the full hour, or if we missed it after one hour
-  if(NTPsynctime > 10100){  //sync at the full minute
+  //if(NTPsynctime > 10100){  //sync at the full minute
   //if((((Teensy3Clock.get() % 600) == 0) && (NTPsynctime > 2000)) || (NTPsynctime > 1000 * (600 + 30))){ //sync at full hour or when 1h + 30 sec. has passed, log every 10 min.
   //if((((Teensy3Clock.get() % 6) == 0) && (NTPsynctime > 2000)) || (NTPsynctime > 1000 * 60 + 6000)){ //sync every 6 seconds, update time every full minute
+  if(((Teensy3Clock.get() % 60) == 0) && (NTPsynctime > 2000)){ //once a minute
     MISCdataString = createMISCDataString("NTP","last sync ms ago",String(NTPsynctime),MISCdataString);
-    
     
     //if((sync_counter % 10) == 0) do_sync = 1;
     //else do_sync = 0;
-    uint8_t NTPstate = NTPsync(1);
+    uint8_t NTPstate = NTPsync(0);
     //sync_counter++;
     
     if(NTPstate){
@@ -367,7 +367,7 @@ void loop(){
       sprintf(timeinfo, "loc adj.: %04u-%02u-%2u %02u:%02u:%02u-%06.2f",alt.Year + 1970,alt.Month,alt.Day,alt.Hour,alt.Minute,alt.Second,alt_ms);
       MISCdataString = createMISCDataString("NTP",timeinfo,do_sync,MISCdataString);
       
-      //MISCdataString = createMISCDataString("NTP","RTC diff from NTP ms",RTC_drift,MISCdataString);
+      MISCdataString = createMISCDataString("NTP","RTC diff from NTP ms",RTC_drift,MISCdataString);
       //MISCdataString = createMISCDataString("NTP","Roundtrip time RTC ms",loop_t_ms,MISCdataString);
       MISCdataString = createMISCDataString("NTP","time to server response ms",server_res_t,MISCdataString);
     }
@@ -557,7 +557,7 @@ uint8_t NTPsync(uint8_t update_time){
     return 1;
   }
   else{
-    uint32_t timeout_buf = timeout; //mesure how long it took for the server to answer
+    uint32_t timeout_buf = timeout; //measure how long it took for the server to answer
     
     const uint8_t *ntpbuf = udp.data(); //returns pointer to received package data
     
@@ -586,12 +586,6 @@ uint8_t NTPsync(uint8_t update_time){
       return 3;
     }
     
-    //Discard if seconds value is not the same between server receive and send
-    if(send_st != receive_st){
-      Serial.print("--- server time discrepancy: ");
-      return 4;
-    }
-
     //See: Section 3, "NTP Timestamp Format"
     if((send_lt & 0x80000000U) == 0) send_lt += EBreakTime;
     else send_lt -= EpochDiff;
@@ -600,27 +594,25 @@ uint8_t NTPsync(uint8_t update_time){
     if((receive_st & 0x80000000U) == 0) receive_st += EBreakTime;
     else receive_st -= EpochDiff;
 
-    //calculate time between sending and receiving NTP packet to adjust for network delay
-    uint16_t rollover = 0; //account for overflow
-    if(receive_lt_frac15 < send_lt_frac15) rollover = 32768;
-    uint32_t loop_t_frac15 = receive_lt_frac15 - send_lt_frac15 + rollover;
+    //Just convert everything to double, avoides all rollover headaches, still fast enough
+    double dt0 = send_lt + ((double)send_lt_frac15 / 32768);
+    double dt1 = receive_st + ((double)receive_st_frac32 / UINT32_MAX);
+    double dt2 = send_st + ((double)send_st_frac32 / UINT32_MAX);
+    double dt3 = receive_lt + ((double)receive_lt_frac15 / 32768);
+    double dtheta = (dt1 - dt0 + dt2 - dt3) / 2; //offset of local time vs NTP server time
     
-    //time between send and receive, assume send/receive takes same time
-    int32_t t0 = (send_lt_frac15 + rollover) & 0x7fff;
-    int32_t t1 = receive_st_frac32 >> 17;
-    int32_t t2 = send_st_frac32 >> 17;
-    int32_t t3 = receive_lt_frac15;
+    double newtime = dt3 + dtheta; //seconds + millis RTC should be set to (receive_local_time + offset)
+    double setseconds; //seconds value RTC should be set to, to be accurate
+    double setmillis;  //millis/1000 the RTC should be set to
+    setmillis = modf(newtime, &setseconds); //split newtime into integer/fractional parts
     
-    int32_t theta = (t1 - t0 + t2 - t3) >> 1; //(t1 - t0 + t2 - t3) >> 1 adjust against local receive time
+    double clock_set_offset = 0.000939; //approximate time in s it takes to actually set the clock
+    uint32_t setfracs = (uint32_t)(floor((setmillis + clock_set_offset) * 32768)); //convert fractional part to 2**15 fractions and apply offset
     
-    uint32_t newseconds = send_st;
+    //Set the RTC and time ~0.939 ms (median over 50 values)
+    if(update_time) rtc_set_secs_and_frac((uint32_t)setseconds,setfracs); //set time and adjust for transmit delay, frac will only use lower 15bits
     
-    //Set the RTC and time ~0.98 ms ??
-    
-    if(update_time) rtc_set_secs_and_frac(newseconds,t3 + theta); //set time and adjust for transmit delay, frac will only use lower 15bits
-    
-    
-    //read time from adjusted RTC <0.007 ms until end
+    //read time from adjusted RTC. <0.007 ms until end
     uint32_t adjust_lt = Teensy3Clock.get();
     uint32_t adjust_lt_frac15 = readRTCfrac();
     
@@ -645,20 +637,22 @@ uint8_t NTPsync(uint8_t update_time){
     breakTime(adjust_lt, alt);
     alt_ms = ((float)adjust_lt_frac15/32768) * 1000;
     
-    //RTC_drift = -((((float)receive_lt_frac15/32768) * 1000) - (((float)((send_st_frac32 >> 17) + adjust_frac15)/32768) * 1000) + ((receive_lt - adjust_lt) * 1000));
-    
+    RTC_drift = dtheta*1000;  //difference between local RTC and NTP server
+    server_res_t = ((float)timeout_buf)/1000; //time between sending UDP package and receiving
     
     //DEBUGDEBUGDEBUGDEBUGDEBUGDEBUGDEBUGDEBUGDEBUGDEBUGDEBUGDEBUG
-    Serial.print("theta: ");
-    Serial.println((float)theta/32768 * 1000);
-    Serial.print("adjust: ");
-    Serial.println(((float)theta/32768 * 1000) + (((int32_t)send_st - (int32_t)receive_lt)*1000));
-    
-    
-    
-    loop_t_ms = (float)loop_t_frac15/32768 * 1000;
-    
-    server_res_t = ((float)timeout_buf)/1000;
+    // Serial.print("theta: ");
+    // Serial.println((float)theta/32768 * 1000000);
+    // Serial.print("adjust: ");
+    // Serial.println(((float)theta/32768 * 1000000) + (((int32_t)send_st - (int32_t)receive_lt)*1000));
+    // Serial.print("adjust by ms: ");
+    // Serial.println(dtheta*1000);
+    // Serial.print("better secs: ");
+    // Serial.println(xbetterseconds);
+    // Serial.print("better millis: ");
+    // Serial.println(xbetterfracs);
+    // Serial.print("benchy: ");
+    // Serial.println(benchybuf);
     
     if(is_testing == 1){
       Serial.printf("loc send: %04u-%02u-%02u %02u:%02u:%02u-%02f\r\n", slt.Year + 1970, slt.Month, slt.Day, slt.Hour, slt.Minute, slt.Second, slt_ms);
@@ -672,9 +666,6 @@ uint8_t NTPsync(uint8_t update_time){
       
       Serial.print("Roundtrip time RTC ms:  ");
       Serial.println(loop_t_ms);
-
-      Serial.print("Add roundtrip delay ms: ");
-      Serial.println(((float)adjust_frac15)/32768 * 1000);
       
       Serial.print("time to server response ms ");
       Serial.println(server_res_t);
