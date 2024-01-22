@@ -337,7 +337,7 @@ void loop(){
   }
   
   //NTP sync at the full hour, or if we missed it after one hour
-  //if(NTPsynctime > 10100){  //sync at the full minute
+  //if(NTPsynctime > 6100){  //sync at the full minute
   //if((((Teensy3Clock.get() % 600) == 0) && (NTPsynctime > 2000)) || (NTPsynctime > 1000 * (600 + 30))){ //sync at full hour or when 1h + 30 sec. has passed, log every 10 min.
   //if((((Teensy3Clock.get() % 6) == 0) && (NTPsynctime > 2000)) || (NTPsynctime > 1000 * 60 + 6000)){ //sync every 6 seconds, update time every full minute
   if(((Teensy3Clock.get() % 60) == 0) && (NTPsynctime > 2000)){ //once a minute
@@ -345,7 +345,9 @@ void loop(){
     
     //if((sync_counter % 10) == 0) do_sync = 1;
     //else do_sync = 0;
+    
     uint8_t NTPstate = NTPsync(0);
+    
     //sync_counter++;
     
     if(NTPstate){
@@ -394,13 +396,13 @@ void loop(){
     digitalWriteFast(statusLED,LOW);
   }
   
-  //log MISC events
+  //log MISC events ~2-3ms
   if(MISCdataString.length() != 0){
-		dataFile.println(MISCdataString);	//append Datastring to file
+    dataFile.println(MISCdataString);	//append Datastring to file
 		dataFile.flush();
 		dataFileBackup.println(MISCdataString);
 		dataFileBackup.flush();
-		Serial.println(MISCdataString);
+    Serial.println(MISCdataString);
     Serial.println("");
 	}
 
@@ -536,7 +538,7 @@ uint8_t getButton(){
   if(input > 450 && input <= 850) return 3;
 }
 
-//Fetch NTP time and update RTC ------------------------------------------------
+//Fetch NTP time and update RTC ~3ms dependent on server response time ---------
 uint8_t NTPsync(uint8_t update_time){
   
   //Set the Transmit Timestamp < 0.001 ms
