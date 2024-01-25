@@ -65,6 +65,8 @@ double drift_multiplier = 0;
 double last_sync;         //last time NTP synced successfully
 double second_last_sync;  //second last successfull sync time
 double last_RTC_drift_ms;
+uint8_t NTP_sync_failed = 0; //counts how often the NTP sync failed
+uint8_t force_sync = 0;
 
 //NTP printing stuff
 tmElements_t slt;
@@ -349,34 +351,90 @@ void loop(){
     Serial.println("oneshot startup done");
   }
   
-  //NTP sync at the full hour, or if we missed it after one hour
-  if(NTPsynctime > 60000){  //
-  //if((((Teensy3Clock.get() % 300) == 0) && (NTPsynctime > 2000)) || (NTPsynctime > 1000 * (600 + 30))){ //sync at full 10 minutes or when 1h + 30 sec. has passed, log every 10 min.
-  //if((((Teensy3Clock.get() % 6) == 0) && (NTPsynctime > 2000)) || (NTPsynctime > 1000 * 60 + 6000)){ //sync every 6 seconds, update time every full minute
-  //if(((Teensy3Clock.get() % 60) == 0) && (NTPsynctime > 2000)){ //once a minute
-    MISCdataString = createMISCDataString("NTP","last sync ms ago",String(NTPsynctime),MISCdataString);
+  
+  //NTP sync sync at specified time across all devices simultaneously to avoid offset caused by shifts in the servers RTC
+  uint16_t syncinterval = 60;
+  //if(NTPsynctime > 60000){  //
+  if(((((Teensy3Clock.get() % syncinterval) == 0) && (NTPsynctime > 2000)) || (NTPsynctime > 1000 * (syncinterval + 3))) || (force_sync && (NTPsynctime > 1000))){ //sync at full 10 minutes, or if missed after 10:30min., or if forced due to sync failure
     
-    // if(sync_counter >= 10){
-    //   do_sync = 1;
-    //   sync_counter = 0;
-    // }
-    // else{
-    //   do_sync = 0;
-    //   sync_counter++;
-    // }
+    uint8_t NTPstate = NTPsync(1); //perform NTP sync
+    NTPsynctime = 0;
     
-    uint8_t NTPstate = NTPsync(do_sync);
-    do_sync = !do_sync;
+    char timeinfo[38]; //verbose NTP server responses
     
-    
-    if(NTPstate){
-      NTPsynctime = 10002; //check again in 10 seconds if we didn't get a response
-      MISCdataString = createMISCDataString("NTP","Error return code",NTPstate,MISCdataString);
-    }
-    else{
-      NTPsynctime = 0;
+    if(NTPstate){   //if NTPsync was unsuccessful
+      NTP_sync_failed++; //increase sync fail counter
+      MISCdataString = createMISCDataString("NTP","Error, return code",NTPstate,MISCdataString);
       
-      char timeinfo[37];
+      if(NTP_sync_failed > 3){ //allow up to 3 failed online sync attempts before using saved drift values
+        force_sync = 0;      //disable force sync
+        
+        double now_time = doubleTime15(Teensy3Clock.get(),readRTCfrac()); //get current time
+        double timediff = now_time - last_sync;   //time between now and last sync
+        
+        double RTC_drift_timebase = syncinterval; //get well calibrated median here <<<<<<<<<<<<<<<<<<<<<<<<<<
+        double drift_s_per_s = (last_RTC_drift_ms/1000) / RTC_drift_timebase; //
+        
+        double dis_now_time = now_time + (drift_s_per_s * timediff);
+        last_sync = dis_now_time;
+        
+        //split disciplined time to sec+frac15
+        uint32_t disseconds,dis_frac15;
+        fracTime15(dis_now_time, &disseconds, &dis_frac15);
+        
+        //update RTC clock
+        rtc_set_secs_and_frac(disseconds,dis_frac15); //set time and adjust for transmit delay, frac will only use lower 15bits
+        
+        //split now time time to sec+frac15
+        uint32_t ltseconds,lt_frac15;
+        fracTime15(now_time, &ltseconds, &lt_frac15);
+        
+        //format time to human readable format
+        tmElements_t lt;
+        breakTime(ltseconds, lt);
+        double lt_ms = ((double)lt_frac15/32768) * 1000;
+        
+        tmElements_t dlt;
+        breakTime(disseconds, dlt);
+        double dismillis = ((double)dis_frac15/32768) * 1000;
+        
+        
+        //DEBUGDEBUGDEBUGDEBUGDEBUGDEBUGDEBUGDEBUGDEBUGDEBUGDEBUGDEBUGDEBUGDEBUGDEBUGDEBUGDEBUGDEBUGDEBUGDEBUG
+        MISCdataString = createMISCDataString("NTP","offline sync",NTPstate,MISCdataString);
+        sprintf(timeinfo, "loc now.: %04u-%02u-%2u %02u:%02u:%02u-%07.3f",lt.Year + 1970,lt.Month,lt.Day,lt.Hour,lt.Minute,lt.Second,lt_ms);
+        MISCdataString = createMISCDataString("NTP",timeinfo,"",MISCdataString);
+        Serial.println(timeinfo);
+        sprintf(timeinfo, "loc dri.: %04u-%02u-%2u %02u:%02u:%02u-%07.3f",dlt.Year + 1970,dlt.Month,dlt.Day,dlt.Hour,dlt.Minute,dlt.Second,dismillis);
+        MISCdataString = createMISCDataString("NTP",timeinfo,"",MISCdataString);
+        Serial.println(timeinfo);
+        
+        MISCdataString = createMISCDataString("NTP","drift_s_per_s",drift_s_per_s,MISCdataString);
+        
+        Serial.print("drift_s_per_s: ");
+        Serial.println(drift_s_per_s,10);
+        Serial.print("RTC_drift_timebase: ");
+        Serial.println(RTC_drift_timebase,6);
+        Serial.print("timediff: ");
+        Serial.println(timediff,6);
+        Serial.print("last sync ");
+        Serial.println(last_sync);
+        Serial.print("2nd last sync ");
+        Serial.println(second_last_sync);
+        Serial.print("last RTC drift ");
+        Serial.println(last_RTC_drift_ms);
+        // Serial.print("disciplined diff from NTP ms: ");
+        // Serial.println((dis_now_time - (now_time + (RTC_drift_ms/1000))) * 1000,6);
+        
+        Serial.println("---");
+      }
+      else{  //try sync again
+        force_sync = 1;
+      }
+    }
+    else{   //successful sync
+      NTP_sync_failed = 0; //reset failure counter
+      force_sync = 0;      //disable force sync
+      
       sprintf(timeinfo, "loc send: %04u-%02u-%2u %02u:%02u:%02u-%07.3f",slt.Year + 1970,slt.Month,slt.Day,slt.Hour,slt.Minute,slt.Second,slt_ms);
       MISCdataString = createMISCDataString("NTP",timeinfo,"",MISCdataString);
       sprintf(timeinfo, "NTP rec.: %04u-%02u-%2u %02u:%02u:%02u-%07.3f",rst.Year + 1970,rst.Month,rst.Day,rst.Hour,rst.Minute,rst.Second,rst_ms);
@@ -386,60 +444,18 @@ void loop(){
       sprintf(timeinfo, "loc rec.: %04u-%02u-%2u %02u:%02u:%02u-%07.3f",rlt.Year + 1970,rlt.Month,rlt.Day,rlt.Hour,rlt.Minute,rlt.Second,rlt_ms);
       MISCdataString = createMISCDataString("NTP",timeinfo,"",MISCdataString);
       sprintf(timeinfo, "loc adj.: %04u-%02u-%2u %02u:%02u:%02u-%07.3f",alt.Year + 1970,alt.Month,alt.Day,alt.Hour,alt.Minute,alt.Second,alt_ms);
-      MISCdataString = createMISCDataString("NTP",timeinfo,do_sync,MISCdataString);
-      // sprintf(timeinfo, "loc dis.: %04u-%02u-%2u %02u:%02u:%02u-%07.3f",dlt.Year + 1970,dlt.Month,dlt.Day,dlt.Hour,dlt.Minute,dlt.Second,dlt_ms);
-      // MISCdataString = createMISCDataString("NTP",timeinfo,"",MISCdataString);
+      MISCdataString = createMISCDataString("NTP",timeinfo,"",MISCdataString);
       
       MISCdataString = createMISCDataString("NTP","RTC diff from NTP ms",RTC_drift_ms,MISCdataString);
-      //MISCdataString = createMISCDataString("NTP","NTP diff from DIS ms",dis_drift,MISCdataString);
-      //MISCdataString = createMISCDataString("NTP","Roundtrip time RTC ms",loop_t_ms,MISCdataString);
-      MISCdataString = createMISCDataString("NTP","time to server response ms",server_res_ms,MISCdataString);
+      //MISCdataString = createMISCDataString("NTP","time to server response ms",server_res_ms,MISCdataString);
       
-      //---------------------------
+      Serial.print("last sync ");
+      Serial.println(last_sync);
+      Serial.print("2nd last sync ");
+      Serial.println(second_last_sync);
+      Serial.print("last RTC drift ");
+      Serial.println(last_RTC_drift_ms);
       
-      double now_time = doubleTime15(Teensy3Clock.get(),readRTCfrac());
-      double timediff = now_time - last_sync;
-      double RTC_drift_timebase = last_sync - second_last_sync;
-      
-      double drift_s_per_s = (last_RTC_drift_ms/1000) / RTC_drift_timebase;
-      
-      double dis_now_time = now_time + (drift_s_per_s * timediff);
-      
-      
-      //format now time
-      uint32_t ltseconds,lt_frac15;
-      fracTime15(now_time, &ltseconds, &lt_frac15);
-      
-      tmElements_t lt;
-      breakTime(ltseconds, lt);
-      double lt_ms = ((double)lt_frac15/32768) * 1000;
-      
-      //format disciplined time
-      uint32_t disseconds,dis_frac15;
-      fracTime15(dis_now_time, &disseconds, &dis_frac15);
-      
-      tmElements_t dlt;
-      breakTime(disseconds, dlt);
-      double dismillis = ((double)dis_frac15/32768) * 1000;
-      
-      
-      //print
-      Serial.println("---");
-      sprintf(timeinfo, "loc now.: %04u-%02u-%2u %02u:%02u:%02u-%07.3f",lt.Year + 1970,lt.Month,lt.Day,lt.Hour,lt.Minute,lt.Second,lt_ms);
-      Serial.println(timeinfo);
-      sprintf(timeinfo, "loc dri.: %04u-%02u-%2u %02u:%02u:%02u-%07.3f",dlt.Year + 1970,dlt.Month,dlt.Day,dlt.Hour,dlt.Minute,dlt.Second,dismillis);
-      Serial.println(timeinfo);
-      
-      Serial.print("drift_s_per_s: ");
-      Serial.println(drift_s_per_s,10);
-      Serial.print("RTC_drift_timebase: ");
-      Serial.println(RTC_drift_timebase,6);
-      Serial.print("timediff: ");
-      Serial.println(timediff,6);
-      Serial.print("disciplined diff from NTP ms: ");
-      Serial.println((dis_now_time - (now_time + (RTC_drift_ms/1000))) * 1000,6);
-      
-      Serial.println("---");
     }
   }
   
@@ -471,7 +487,6 @@ void loop(){
     Serial.println(MISCdataString);
     Serial.println("");
 	}
-
 } //end of loop
 
 //##############################################################################
@@ -717,7 +732,7 @@ uint8_t NTPsync(uint8_t update_time){
     RTC_drift_ms = dtheta*1000;  //difference between local RTC and NTP server
     server_res_ms = timeout_buf_us/1000; //time between sending UDP package and receiving
     
-    if(do_sync){  //when actually syncing store the adjusted time when the sync was done
+    if(update_time){  //when actually syncing store the adjusted time when the sync was done
       second_last_sync = last_sync;
       last_sync = doubleTime15(adjust_lt,adjust_lt_frac15);
       last_RTC_drift_ms = RTC_drift_ms;
