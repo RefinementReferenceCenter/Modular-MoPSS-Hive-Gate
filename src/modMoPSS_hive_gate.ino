@@ -68,6 +68,12 @@ double last_RTC_drift_ms;
 uint8_t NTP_sync_failed = 0; //counts how often the NTP sync failed
 uint8_t force_sync = 0;
 
+const uint8_t drift_array_size = 11;  //must be odd (or adjust median calculation)
+double RTC_drift_ms_array[drift_array_size]; //collects the last 10 RTC drift values to get a median drift value
+uint8_t RTC_drift_it = 0;      //counter to iterate through drift array
+double RTC_drift_ms_median;
+uint8_t median_ok = 0;
+
 //NTP printing stuff
 tmElements_t slt;
 float slt_ms;
@@ -79,8 +85,6 @@ tmElements_t rlt;
 float rlt_ms;
 tmElements_t alt;
 float alt_ms;
-// tmElements_t dlt;
-// float dlt_ms;
 
 double loop_t_ms;
 double server_res_ms;
@@ -362,6 +366,17 @@ void loop(){
     
     char timeinfo[38]; //verbose NTP server responses
     
+    //DEBUGDEBUGDEBUGDEBUGDEBUG
+    Serial.print("drift array: ");
+    for(int n = 0;n < drift_array_size;n++){
+      Serial.print(RTC_drift_ms_array[n]);
+      Serial.print(" - ");
+    }
+    Serial.println();
+    Serial.print("drift median: ");
+    Serial.println(RTC_drift_ms_median);
+    
+    
     if(NTPstate){   //if NTPsync was unsuccessful
       NTP_sync_failed++; //increase sync fail counter
       MISCdataString = createMISCDataString("NTP","Error, return code",NTPstate,MISCdataString);
@@ -372,8 +387,8 @@ void loop(){
         double now_time = doubleTime15(Teensy3Clock.get(),readRTCfrac()); //get current time
         double timediff = now_time - last_sync;   //time between now and last sync
         
-        double RTC_drift_timebase = syncinterval; //get well calibrated median here <<<<<<<<<<<<<<<<<<<<<<<<<<
-        double drift_s_per_s = (last_RTC_drift_ms/1000) / RTC_drift_timebase; //
+        double RTC_drift_timebase = syncinterval;
+        double drift_s_per_s = (RTC_drift_ms_median/1000) / RTC_drift_timebase;
         
         double dis_now_time = now_time + (drift_s_per_s * timediff);
         last_sync = dis_now_time;
@@ -382,33 +397,30 @@ void loop(){
         uint32_t disseconds,dis_frac15;
         fracTime15(dis_now_time, &disseconds, &dis_frac15);
         
-        //update RTC clock
+        //update RTC clock with offset determined by calculated drift
         rtc_set_secs_and_frac(disseconds,dis_frac15); //set time and adjust for transmit delay, frac will only use lower 15bits
         
-        //split now time time to sec+frac15
-        uint32_t ltseconds,lt_frac15;
-        fracTime15(now_time, &ltseconds, &lt_frac15);
+        //split now_time time to sec+frac15
+        uint32_t ntseconds,nt_frac15;
+        fracTime15(now_time, &ntseconds, &nt_frac15);
         
-        //format time to human readable format
-        tmElements_t lt;
-        breakTime(ltseconds, lt);
-        double lt_ms = ((double)lt_frac15/32768) * 1000;
-        
+        //format now_time to human readable format
+        tmElements_t nt;
+        breakTime(ntseconds, nt);
+        double nt_ms = ((double)nt_frac15/32768) * 1000;
+        //format disciplined time to human readable format
         tmElements_t dlt;
         breakTime(disseconds, dlt);
         double dismillis = ((double)dis_frac15/32768) * 1000;
         
-        
-        //DEBUGDEBUGDEBUGDEBUGDEBUGDEBUGDEBUGDEBUGDEBUGDEBUGDEBUGDEBUGDEBUGDEBUGDEBUGDEBUGDEBUGDEBUGDEBUGDEBUG
-        MISCdataString = createMISCDataString("NTP","offline sync",NTPstate,MISCdataString);
-        sprintf(timeinfo, "loc now.: %04u-%02u-%2u %02u:%02u:%02u-%07.3f",lt.Year + 1970,lt.Month,lt.Day,lt.Hour,lt.Minute,lt.Second,lt_ms);
+        //log
+        MISCdataString = createMISCDataString("NTP","offline sync","",MISCdataString);
+        sprintf(timeinfo, "loc now.: %04u-%02u-%2u %02u:%02u:%02u-%07.3f",nt.Year + 1970,nt.Month,nt.Day,nt.Hour,nt.Minute,nt.Second,nt_ms);
         MISCdataString = createMISCDataString("NTP",timeinfo,"",MISCdataString);
-        Serial.println(timeinfo);
         sprintf(timeinfo, "loc dri.: %04u-%02u-%2u %02u:%02u:%02u-%07.3f",dlt.Year + 1970,dlt.Month,dlt.Day,dlt.Hour,dlt.Minute,dlt.Second,dismillis);
         MISCdataString = createMISCDataString("NTP",timeinfo,"",MISCdataString);
-        Serial.println(timeinfo);
         
-        MISCdataString = createMISCDataString("NTP","drift_s_per_s",drift_s_per_s,MISCdataString);
+        //MISCdataString = createMISCDataString("NTP","drift_s/s",drift_s_per_s,MISCdataString);
         
         Serial.print("drift_s_per_s: ");
         Serial.println(drift_s_per_s,10);
@@ -736,6 +748,22 @@ uint8_t NTPsync(uint8_t update_time){
       second_last_sync = last_sync;
       last_sync = doubleTime15(adjust_lt,adjust_lt_frac15);
       last_RTC_drift_ms = RTC_drift_ms;
+      
+      RTC_drift_ms_array[RTC_drift_it] = RTC_drift_ms;
+      RTC_drift_it++;
+      if(RTC_drift_it >= drift_array_size){
+        RTC_drift_it = 0;
+        median_ok = 1;
+      }
+      //sort drift array and get median
+      
+      double sort_drift[drift_array_size];
+      memcpy(sort_drift,RTC_drift_ms_array,sizeof(RTC_drift_ms_array[0])*drift_array_size);
+      
+      qsort(sort_drift, drift_array_size, sizeof(sort_drift[0]), cmpfunc);
+      
+      RTC_drift_ms_median = sort_drift[(drift_array_size-1)/2];
+      
     }
     
     //DEBUGDEBUGDEBUGDEBUGDEBUGDEBUGDEBUGDEBUGDEBUGDEBUGDEBUGDEBUG
