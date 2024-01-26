@@ -64,7 +64,6 @@ uint32_t sync_counter = 0;
 double drift_multiplier = 0;
 double last_sync;         //last time NTP synced successfully
 double second_last_sync;  //second last successfull sync time
-double last_RTC_drift_ms;
 uint8_t NTP_sync_failed = 0; //counts how often the NTP sync failed
 uint8_t force_sync = 0;
 
@@ -344,11 +343,11 @@ void loop(){
   if(once){
     Serial.println("oneshot startup");
     
-    NTPsync(1);
+    NTPsync(1,0);
     delay(1000);
-    NTPsync(1);
+    NTPsync(1,0);
     delay(1000);
-    NTPsync(1);
+    NTPsync(1,0);
     delay(1000);
     once = 0;
     
@@ -357,11 +356,21 @@ void loop(){
   
   
   //NTP sync sync at specified time across all devices simultaneously to avoid offset caused by shifts in the servers RTC
-  uint16_t syncinterval = 60;
+  uint16_t syncinterval = 600;
   //if(NTPsynctime > 60000){  //
   if(((((Teensy3Clock.get() % syncinterval) == 0) && (NTPsynctime > 2000)) || (NTPsynctime > 1000 * (syncinterval + 3))) || (force_sync && (NTPsynctime > 1000))){ //sync at full 10 minutes, or if missed after 10:30min., or if forced due to sync failure
     
-    uint8_t NTPstate = NTPsync(1); //perform NTP sync
+    
+    //if first sync after failed, don't add to median array
+    uint8_t NTPstate;
+    if(NTP_sync_failed > 0){
+      NTPstate = NTPsync(1,0); //don't add drift to median
+    }
+    else{
+      NTPstate = NTPsync(1,1); //add drift to median
+    }
+    
+    
     NTPsynctime = 0;
     
     char timeinfo[38]; //verbose NTP server responses
@@ -370,7 +379,7 @@ void loop(){
     Serial.print("drift array: ");
     for(int n = 0;n < drift_array_size;n++){
       Serial.print(RTC_drift_ms_array[n]);
-      Serial.print(" - ");
+      Serial.print(" | ");
     }
     Serial.println();
     Serial.print("drift median: ");
@@ -432,8 +441,6 @@ void loop(){
         Serial.println(last_sync);
         Serial.print("2nd last sync ");
         Serial.println(second_last_sync);
-        Serial.print("last RTC drift ");
-        Serial.println(last_RTC_drift_ms);
         // Serial.print("disciplined diff from NTP ms: ");
         // Serial.println((dis_now_time - (now_time + (RTC_drift_ms/1000))) * 1000,6);
         
@@ -465,8 +472,6 @@ void loop(){
       Serial.println(last_sync);
       Serial.print("2nd last sync ");
       Serial.println(second_last_sync);
-      Serial.print("last RTC drift ");
-      Serial.println(last_RTC_drift_ms);
       
     }
   }
@@ -652,7 +657,7 @@ void fracTime15(double dtime, uint32_t *seconds, uint32_t *frac15){
 }
 
 //Fetch NTP time and update RTC ~3ms dependent on server response time ---------
-uint8_t NTPsync(uint8_t update_time){
+uint8_t NTPsync(uint8_t update_time, uint8_t save_drift){
   //Set the Transmit Timestamp < 0.001 ms
   while(udp.parsePacket() > 0); //clear any udp data left in the buffer
   if(is_testing == 1) Serial.println("--- Sending NTP request to the gateway..."); //nothing slow from here until time is written
@@ -747,22 +752,21 @@ uint8_t NTPsync(uint8_t update_time){
     if(update_time){  //when actually syncing store the adjusted time when the sync was done
       second_last_sync = last_sync;
       last_sync = doubleTime15(adjust_lt,adjust_lt_frac15);
-      last_RTC_drift_ms = RTC_drift_ms;
       
-      RTC_drift_ms_array[RTC_drift_it] = RTC_drift_ms;
-      RTC_drift_it++;
-      if(RTC_drift_it >= drift_array_size){
-        RTC_drift_it = 0;
-        median_ok = 1;
+      if(save_drift){
+        RTC_drift_ms_array[RTC_drift_it] = RTC_drift_ms;
+        RTC_drift_it++;
+        if(RTC_drift_it >= drift_array_size){
+          RTC_drift_it = 0;
+          median_ok = 1;
+        }
+        //sort drift array and get median
+        double sort_drift[drift_array_size];
+        memcpy(sort_drift,RTC_drift_ms_array,sizeof(RTC_drift_ms_array[0])*drift_array_size);
+        qsort(sort_drift, drift_array_size, sizeof(sort_drift[0]), cmpfunc);
+        RTC_drift_ms_median = sort_drift[(drift_array_size-1)/2];
       }
-      //sort drift array and get median
       
-      double sort_drift[drift_array_size];
-      memcpy(sort_drift,RTC_drift_ms_array,sizeof(RTC_drift_ms_array[0])*drift_array_size);
-      
-      qsort(sort_drift, drift_array_size, sizeof(sort_drift[0]), cmpfunc);
-      
-      RTC_drift_ms_median = sort_drift[(drift_array_size-1)/2];
       
     }
     
