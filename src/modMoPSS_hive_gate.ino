@@ -9,7 +9,7 @@ A16,A17 - X4 infrared barrier 4
 A1,A0   - X5
 A6,A7   - X6
 A8,A9   - X7
-D3,D2   - X8
+D3,D2   - X8Wire.
 
 - multi-purpose 3-pin connectors (Signal|GND|+12V)
 D9  - J4
@@ -163,6 +163,7 @@ uint8_t RFIDmode_firstrun = 1;  //to make sure the correct reader is turned on/o
 uint8_t tc_occupied = 0;   //flag that tracks occupation of test cage
 uint32_t starttime;        //start of programm
 uint32_t rtccheck_time;    //time the rtc was checked last
+uint64_t lastMouseSightingTime =0;
 
 //Mice tags
 const uint8_t mice = 15;           //number of mice in experiment (add 1 for mouse 0, add 2 for test-mice)
@@ -205,7 +206,7 @@ const uint8_t debug = 1;
 uint8_t habituation_phase = 3;
 
 //time mouse is kept in transition (inside gate) with both doors closed (ms)
-uint16_t transition_delay = 3000; //ms
+uint16_t transition_delay = 10000; //ms
 
 //time until fan1 is turned on
 const uint16_t fan1delay = 30000; //ms door 1 open and until fan1 is turned on
@@ -392,6 +393,16 @@ void setup(){
     door_open[HCdoor] = 1;
     door_open[TCdoor] = 1;
   }
+    //doors closed for phase 2
+    if(habituation_phase == 2){
+    moveDoor(doorMod1,HCdoor,down); //close HCdoor
+    moveDoor(doorMod1,TCdoor,down); //close TCdoor
+    while(getDoorModuleStatus(doorMod1)) delay(250); //while busy wait for move to finish
+    door_open[HCdoor] = 0;
+    door_open[TCdoor] = 0;
+    tm_state = 0x1A;  //start in state 1A
+  }
+  
   //transitionmanagement habituation phase 3
   if(habituation_phase == 3){
     //ensure both doors start in open position
@@ -632,10 +643,33 @@ void loop(){
   }
 
   //----------------------------------------------------------------------------
-  //door management for phase 1 ------------------------------------------------
+  //door management for phase 2 ------------------------------------------------
   //----------------------------------------------------------------------------
-  if(habituation_phase == 1){ //both doors are open
-    //nothing to do here
+  if(habituation_phase == 2){ //both doors are open
+    //if a mouse is anywhere then open door
+    if((IR1_cbuffer_sum + IR2_cbuffer_sum + IR3_cbuffer_sum + IR4_cbuffer_sum) > 0){
+      if((!door_open[HCdoor] || !door_open[TCdoor]) && tm_state == 0x1A){
+      moveDoor(doorMod1,TCdoor,up); //try opening doors
+      SENSORDataString = createSENSORDataString("D1", "Mouse Seen Opening Door", SENSORDataString); //generate datastring
+      Serial.println("OPEN");
+      moveDoor(doorMod1,HCdoor,up); //try opening doors
+      tm_state=0x1B;
+      }
+      lastMouseSightingTime=millis();
+
+    }
+    else
+    {
+      if (((millis()-lastMouseSightingTime)>5000) && (door_open[HCdoor] || door_open[TCdoor] ) && tm_state == 0x1B)
+      {
+        Serial.println("CLOSE");
+      SENSORDataString = createSENSORDataString("D1", "No Mouse Seen Closing Door", SENSORDataString); //generate datastring
+      moveDoor(doorMod1,TCdoor,down); //try opening doors
+      moveDoor(doorMod1,HCdoor,down); //try opening doors
+      tm_state=0x1A;
+      }
+      
+    }
   } //end habituation phase 1
 
   //----------------------------------------------------------------------------
