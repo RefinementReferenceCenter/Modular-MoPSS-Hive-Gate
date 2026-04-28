@@ -48,6 +48,9 @@ _______/                  |-----   X cm  -----|                  \________
 #include <Wire.h>     //I2C communication
 #include <SdFat.h>    //Access SD Cards
 #include <U8g2lib.h>  //for SSD1306 OLED Display
+#include <cstdint>
+
+
 
 //----- declaring variables ----------------------------------------------------
 //Current Version of the program
@@ -159,14 +162,22 @@ uint8_t lasttag1[6] = {};    //saves id of the tag that was read during the prev
 uint8_t lasttag2[6] = {};
 uint8_t activeTag[6] = {};
 uint8_t targetTag[6] = {};
+
 uint8_t RFIDmode = 1;           //select mode to operate in: 1-alternate, 2-reader1, 3-reader2
 uint8_t RFIDmode_firstrun = 1;  //to make sure the correct reader is turned on/off
+
+
 
 //Experiment variables
 uint8_t tc_occupied = 0;   //flag that tracks occupation of test cage
 uint32_t starttime;        //start of programm
 uint32_t rtccheck_time;    //time the rtc was checked last
 uint64_t lastMouseSightingTime =0;
+
+uint8_t phase5Start=8;
+uint8_t phase5End=12;
+uint32_t tagsOrder[4] = {};
+uint8_t activeTagNumber = 0;
 
 //Mice tags
 const uint8_t mice = 15;           //number of mice in experiment (add 1 for mouse 0, add 2 for test-mice)
@@ -874,7 +885,19 @@ void loop(){
   //----------------------------------------------------------------------------
   //door management for phase 4 ------------------------------------------------
   //----------------------------------------------------------------------------
-  if(habituation_phase == 4){
+  if(habituation_phase == 4 || habituation_phase == 5){
+    if(!door_moving[HCdoor] && !door_moving[TCdoor] && tm_state == 0x10 ){ 
+      if(habituation_phase == 4 && hour()>phase5Start && hour()>phase5End)
+      {
+      
+        if (startPhase5())
+          habituation_phase == 5
+      }   
+      else if(habituation_phase == 5 && hour()<phase5Start && hour()>phase5End)
+      {
+          habituation_phase == 4
+      }   
+    }
     //--- state 1 - D1 open, D2 closed, mouse can enter towards tc, or leave towards hc
     if(!door_moving[HCdoor] && !door_moving[TCdoor]){ //advance transitionmanagement only when doors are not moving
       //if failsave for double mouse triggered
@@ -886,23 +909,41 @@ void loop(){
       }
       //state 0x10 Both Doors Closed
       if((tm_state == 0x10) && IR1_cbuffer_sum){
+       if (habituation_phase == 4){
         moveDoor(doorMod1,HCdoor,up); //open door
         SENSORDataString = createSENSORDataString("D1", "opening", SENSORDataString);
         
         tm_state = 0x1A;
         SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
+       }
+       else if(habituation_phase == 5){
+        //check if we have the mouse we want
+        if (tagsOrder[activeTagNumber]==lastXDigits(getID64(lasttag1), 4))
+        {
+        copyTags(lasttag1, activeTag);
+        moveDoor(doorMod1,HCdoor,up); //open door
+        SENSORDataString = createSENSORDataString("D1", "opening", SENSORDataString);      
+        tm_state = 0x1A;
+        SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
+        }
+        }
       }
       //state 0x1A move towards tc
       if((tm_state == 0x1A) && IR4_cbuffer_sum){
+      
+      
         moveDoor(doorMod1,HCdoor,down); //close door
         SENSORDataString = createSENSORDataString("D1", "closing", SENSORDataString);
         tm_state = 0x2A;
         SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
+      
+      
+
       }
       //state 0x1B move towards hc
       if(tm_state == 0x1B){
         if(millis() - door_stop_time[HCdoor] >= door_stays_open_min){
-          tm_state = 0x1A;
+          tm_state = 0x10;
           SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString); //HCdoor is kept open to allow mouse to exit
         }
       }
@@ -1098,7 +1139,7 @@ void loop(){
       tc_occupied = 1;
       SENSORDataString = createSENSORDataString("TC","occupied FS",SENSORDataString);
     }
-  } //end habituation phase 3
+  } //end habituation phase 4
   
   //----------------------------------------------------------------------------
   //update display -------------------------------------------------------------
@@ -1277,8 +1318,8 @@ void OLEDprintFraction(uint8_t row, uint8_t column, uint8_t clear, uint8_t updat
   if(update) oled.sendBuffer();
 }
 
-//get RFID ID in string format -------------------------------------------------
-String getID(uint8_t in[6]){
+//get RFID ID in u64 format -------------------------------------------------
+uint64_t getID64(uint8_t in[6]){
   uint64_t in64 = 0;
   in64 |= (in[4] & 0b111111);
   in64 <<= 8;
@@ -1289,6 +1330,11 @@ String getID(uint8_t in[6]){
   in64 |= in[1];
   in64 <<= 8;
   in64 |= in[0];
+  return in64;
+}
+//get RFID ID in string format -------------------------------------------------
+String getID(uint8_t in[6]){
+  uint64_t in64 = getID64(in);
 
   String result = "";
   while(in64){
@@ -1563,4 +1609,91 @@ uint8_t getButton(){
   if(input <= 150) return 1;
   if(input > 150 && input <= 450) return 2;
   if(input > 450 && input <= 850) return 3;
+}
+
+
+
+int lastXDigits(long long number, int x) {
+        long long divisor = 1;
+    for (int i = 0; i < x; i++) divisor *= 10;
+    return std::abs(number % divisor);
+}
+
+//Switch to Phase 5 including reading in of Order. Returns True if infor for the date found, otherwise False
+bool startPhase5()
+{
+  
+  uint8_t numFound;
+  if(findTodaysRow(tagsOrder,4, numFound))
+  {
+    String SENSORDataString = createSENSORDataString("Phase 5","Order Found",SENSORDataString);
+  }
+  else
+  {
+    String SENSORDataString = createSENSORDataString("Phase 5","Order Not Found",SENSORDataString);
+  }
+}
+
+// Fills 'out' with zero-padded decimal of 'val' using 'digits' characters
+static void formatDec(char* out, uint16_t val, uint8_t digits) {
+    for (int8_t i = digits - 1; i >= 0; i--) {
+        out[i] = '0' + (val % 10);
+        val /= 10;
+    }
+}
+
+// Build today's date string: "YYYY-MM-DD"
+static void buildDateStr(char* buf) {
+    formatDec(buf,     year(),  4);
+    buf[4] = '-';
+    formatDec(buf + 5, month(), 2);
+    buf[7] = '-';
+    formatDec(buf + 8, day(),   2);
+    buf[10] = '\0';
+}
+
+static uint8_t parseValues(const char* p, uint32_t* vals, uint8_t maxVals) {
+    uint8_t count = 0;
+    while (*p && count < maxVals) {
+        if (*p == ',') { p++; continue; }
+        uint32_t n = 0;
+        while (*p >= '0' && *p <= '9') {
+            n = n * 10 + (*p++ - '0');
+        }
+        vals[count++] = n;
+        if (*p == ',') p++;
+    }
+    return count;
+}
+bool findTodaysRow(uint32_t* vals, uint8_t maxVals, uint8_t& numFound) {
+    
+    char dateStr[11];
+    buildDateStr(dateStr);
+
+    FsFile file;
+    if (!file.open("order.csv", O_RDONLY)) return false;
+
+    char line[64];          // adjust to your max line length
+    uint8_t pos = 0;
+    int16_t c;
+
+    while ((c = file.read()) >= 0) {
+        if (c == '\n' || c == '\r') {
+            if (pos > 0) {
+                line[pos] = '\0';
+                // Match the date prefix
+                if (memcmp(line, dateStr, 10) == 0 && line[10] == ',') {
+                    numFound = parseValues(line + 11, vals, maxVals);
+                    file.close();
+                    return true;
+                }
+                pos = 0;
+            }
+        } else {
+            if (pos < sizeof(line) - 1) line[pos++] = (char)c;
+        }
+    }
+
+    file.close();
+    return false;
 }
