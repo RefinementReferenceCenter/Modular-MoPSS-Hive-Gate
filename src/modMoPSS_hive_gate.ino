@@ -98,6 +98,8 @@ uint8_t IR_middle_csum = 0; //contains the sum of the coincidence sums of IR3 IR
 uint8_t sb = 0;             //sensor buffer counter
 uint32_t IRsensor_time;     //time when IR sensors 1,2,3,4 were last checked
 
+
+
 //LEDs
 const int errorLED = 32;
 const int statusLED = 31;
@@ -155,7 +157,8 @@ uint8_t currenttag1[6] = {}; //saves id of the tag that was read during the curr
 uint8_t currenttag2[6] = {};
 uint8_t lasttag1[6] = {};    //saves id of the tag that was read during the previous read cycle
 uint8_t lasttag2[6] = {};
-
+uint8_t activeTag[6] = {};
+uint8_t targetTag[6] = {};
 uint8_t RFIDmode = 1;           //select mode to operate in: 1-alternate, 2-reader1, 3-reader2
 uint8_t RFIDmode_firstrun = 1;  //to make sure the correct reader is turned on/off
 
@@ -202,7 +205,10 @@ const uint8_t debug = 1;
 
 //Habituation phase
 //1: Both doors always open
+//2: Doors Open as soon as a mouse breaks any light trap
 //3: Transition management enabled, transition delay option
+//4: Transition management enabled, One mouse let into lockbox at a time
+//5: Transition management enabled, One mouse let into lockbox at a time in specifc order
 uint8_t habituation_phase = 3;
 
 //time mouse is kept in transition (inside gate) with both doors closed (ms)
@@ -211,6 +217,7 @@ uint16_t transition_delay = 10000; //ms
 //time until fan1 is turned on
 const uint16_t fan1delay = 30000; //ms door 1 open and until fan1 is turned on
 
+uint16_t wait_delay =10000;
 //##############################################################################
 //#####   S E T U P   ##########################################################
 //##############################################################################
@@ -422,7 +429,7 @@ void setup(){
 
     tm_state = 0x1A;  //start in state 1A
   }
-    //transitionmanagement habituation phase 3
+    //transitionmanagement habituation phase 4
   if(habituation_phase == 4){
     //ensure both doors start in open position
     moveDoor(doorMod1,HCdoor,up); //open HCdoor
@@ -440,7 +447,7 @@ void setup(){
     door_open[TCdoor] = 0;
     door_open[HCdoor] = 0;
 
-    tm_state = 0x1O;  //start in state 1A
+    tm_state = 0x10;  //start in state 1A
   }
 } //end of setup
 
@@ -881,6 +888,7 @@ void loop(){
       if((tm_state == 0x10) && IR1_cbuffer_sum){
         moveDoor(doorMod1,HCdoor,up); //open door
         SENSORDataString = createSENSORDataString("D1", "opening", SENSORDataString);
+        
         tm_state = 0x1A;
         SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
       }
@@ -905,8 +913,8 @@ void loop(){
       if(tm_state == 0x2A){
         if(millis() - door_stop_time[HCdoor] >= transition_delay){
           if(!IR_middle_csum){ //no mouse in middle (formerly individual IRs, not coincidence)
-            moveDoor(doorMod1,HCdoor,up);
-            SENSORDataString = createSENSORDataString("D1", "opening", SENSORDataString);
+            //moveDoor(doorMod1,HCdoor,up);
+            //SENSORDataString = createSENSORDataString("D1", "opening", SENSORDataString);
             tm_state = 0x1A;
             SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
           }
@@ -921,7 +929,7 @@ void loop(){
             if(go){
               moveDoor(doorMod1,TCdoor,up); //open door
               SENSORDataString = createSENSORDataString("D2", "opening", SENSORDataString);
-              tm_state = 0x3A;
+              tm_state = 0x3B;
               SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
               tc_occupied = 1;
               SENSORDataString = createSENSORDataString("TC","occupied",SENSORDataString); //testcage is now occupied
@@ -944,34 +952,85 @@ void loop(){
           if(go){
             moveDoor(doorMod1,HCdoor,up); //open door
             SENSORDataString = createSENSORDataString("D1", "opening", SENSORDataString);
+            if(compareTags(lasttag2,activeTag))
+            {
             tm_state = 0x1B;
             SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
+
             tc_occupied = 0;
-            SENSORDataString = createSENSORDataString("TC","empty",SENSORDataString);} //testcage is no longer occupied
+            SENSORDataString = createSENSORDataString("TC","empty",SENSORDataString); //testcage is no longer occupied
+            }
+            else {
+            tm_state = 0x4A;
+            SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
+            }
+          }
+
           else{
-            moveDoor(doorMod1,TCdoor,up); //open door
-            SENSORDataString = createSENSORDataString("D2", "opening", SENSORDataString); //maximum logging
-            tm_state = 0x3B;
+            //moveDoor(doorMod1,TCdoor,up); //open door
+            //SENSORDataString = createSENSORDataString("D2", "opening", SENSORDataString); //maximum logging
+            tm_state = 0x3C;
             SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
           }
         }
       }
     }
-    //--- state 3 - D1 closed, D2 open, mouse can leave towards tc, or enter from tc
+    //--- state 3 - D1 closed, D2 closed, mouse can leave towards tc, or enter from tc
     if(!door_moving[HCdoor] && !door_moving[TCdoor]){ //advance transitionmanagement only when doors are not moving
-      //state 0x3B move towards hc
-      if((tm_state == 0x3B) && IR3_cbuffer_sum){
-        moveDoor(doorMod1,TCdoor,down); //close door, state = 0x2B after door movement
-        SENSORDataString = createSENSORDataString("D2", "closing", SENSORDataString); //maximum logging
+      //state 0x4A Waiting for non target mouse to leave tube to home cage
+      if(tm_state == 0x4A && !IR_middle_csum){             
+        moveDoor(doorMod1,HCdoor,down); //open door
+        SENSORDataString = createSENSORDataString("D1 ", "down", SENSORDataString); 
+        tm_state = 0x3C;
+        SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
+        }
+      
+      //state 0x3C move towards hc
+      if(tm_state == 0x3C && IR2_cbuffer_sum){       
+        moveDoor(doorMod1,TCdoor,up); //open door
+        SENSORDataString = createSENSORDataString("D2", "opening", SENSORDataString); 
+        tm_state = 0x3D;
+        SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
+      }
+      if (tm_state == 0x3D && IR3_cbuffer_sum)
+      {
+                moveDoor(doorMod1,TCdoor,down); //open door
+        SENSORDataString = createSENSORDataString("D2", "closing", SENSORDataString); 
+        
+        SENSORDataString = createSENSORDataString("RETURN",getID(lasttag2),SENSORDataString);   
+        if(!compareTags(lasttag2,activeTag))
+          {
+          SENSORDataString = createSENSORDataString("MISMATCH",getID(lasttag2),SENSORDataString);   
+          }
         tm_state = 0x2B;
         SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
       }
+      else if(tm_state == 0x3D && (millis() - door_stop_time[TCdoor] >= wait_delay))
+        {
+        moveDoor(doorMod1,TCdoor,down); //open door
+        SENSORDataString = createSENSORDataString("D2", "closing", SENSORDataString); 
+        tm_state = 0x3C;
+        SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
+        }
       //state 0x3A move towards tc
-      if(tm_state == 0x3A){
-        if(millis() - door_stop_time[TCdoor] >= door_stays_open_min){
+      if(tm_state == 0x3A && IR2_cbuffer_sum){        
+        
           tm_state = 0x3B;
+          moveDoor(doorMod1,TCdoor,down); //close door, state = 0x3B after door movement
+          SENSORDataString = createSENSORDataString("D2", "closing", SENSORDataString); //maximum logging
+          SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
+        
+
+      }
+      //state 0x3B Wait before closing
+            if(tm_state == 0x3B){        
+        if(millis() - door_stop_time[TCdoor] >= 1000){     
+          copyTags(lasttag2,activeTag);
+          SENSORDataString = createSENSORDataString("ACTIVE",getID(activeTag),SENSORDataString);   
+          tm_state = 0x3C;
           SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
         }
+
       }
     }
 
@@ -1335,6 +1394,10 @@ uint8_t fetchtag(byte reader, byte busrelease){
   else return 0;
 }
 
+//copy tag from source to dest
+uint8_t copyTags(byte source[], byte dest[]){
+  for(uint8_t i = 0; i < sizeof(source); i++) dest[i] = source[i]; //copy currenttag to lasttag
+}
 //compare current and last tag, no change 0, new tag entered 1, switch 2 (2 present), tag left 3
 uint8_t compareTags(byte currenttag[], byte lasttag[]){
   uint8_t tagchange = 0; //0 = no change, 1 = new tag entered, 2 = switch (2 present), 3 = tag left
