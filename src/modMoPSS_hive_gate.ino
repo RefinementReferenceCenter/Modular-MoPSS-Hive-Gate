@@ -924,20 +924,20 @@ void loop(){
   //door management for phase 4 ------------------------------------------------
   //----------------------------------------------------------------------------
   if(habituation_phase == 4 || habituation_phase == 5){
-    static bool phase5Triggered = 0;
-    if(!door_moving[HCdoor] && !door_moving[TCdoor] && tm_state == 0x10 ){ 
-      if(!phase5Triggered && habituation_phase == 4 && hour()>phase5Start && hour()>phase5End)
-      {
-        phase5Triggered=1;
-        if (startPhase5())
-          habituation_phase == 4;
-      }   
-      else if(phase5Triggered && habituation_phase == 5 && hour()<phase5Start && hour()>phase5End)
-      {
-          phase5Triggered=0;
-          habituation_phase == 4;
-      }   
-    }
+    // static bool phase5Triggered = 0;
+    // if(!door_moving[HCdoor] && !door_moving[TCdoor] && tm_state == 0x10 ){ 
+    //   if(!phase5Triggered && habituation_phase == 4 && hour()>phase5Start && hour()>phase5End)
+    //   {
+    //     phase5Triggered=1;
+    //     if (startPhase5())
+    //       habituation_phase == 4;
+    //   }   
+    //   else if(phase5Triggered && habituation_phase == 5 && hour()<phase5Start && hour()>phase5End)
+    //   {
+    //       phase5Triggered=0;
+    //       habituation_phase == 4;
+    //   }   
+    // }
     //--- state 1 - D1 open, D2 closed, mouse can enter towards tc, or leave towards hc
     if(!door_moving[HCdoor] && !door_moving[TCdoor]){ //advance transitionmanagement only when doors are not moving
       //if failsave for double mouse triggered
@@ -950,6 +950,10 @@ void loop(){
       if(((tm_state == 0x10)) && IR2_cbuffer_sum){
         tm_state = 0x3C;
         tc_occupied=1;
+      }
+      else if(((tm_state == 0x10)) && IR_middle_csum){
+        tm_state = 0xFA;
+        tc_occupied=0;
       }
       //state 0x10 Both Doors Closed
       if((tm_state == 0x10) && IR1_cbuffer_sum){
@@ -1096,7 +1100,7 @@ void loop(){
                 moveDoor(doorMod1,TCdoor,down); //open door
         SENSORDataString = createSENSORDataString("D2", "closing", SENSORDataString); 
         
-        SENSORDataString = createSENSORDataString("RETURN",getID(lasttag2),SENSORDataString);  
+        SENSORDataString = createSENSORDataString("RETURN",getID(lastTagSeen2),SENSORDataString);  
          
         if(hasActiveTag && !compareTags(lastTagSeen2,activeTag))
           {
@@ -1104,6 +1108,7 @@ void loop(){
           }
         else if(hasActiveTag && compareTags(lastTagSeen2,activeTag))
         {
+          SENSORDataString = createSENSORDataString("MATCH",getID(activeTag),SENSORDataString);   
           hasActiveTag=0;
         }
         
