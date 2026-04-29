@@ -290,7 +290,7 @@ void setup(){
     OLEDprint(1,0,0,1,"reader 1:");
     OLEDprint(2,0,0,1,"reader 2:");
     reader1_freq = fetchResFreq(reader1);
-    OLEDprintFraction(2,10,0,1,(float)reader1_freq/1000,3);
+    OLEDprintFraction(1,10,0,1,(float)reader1_freq/1000,3);
     OLEDprint(1,17,0,1,"kHz");
     reader2_freq = fetchResFreq(reader2);
     OLEDprintFraction(2,10,0,1,(float)reader2_freq/1000,3);
