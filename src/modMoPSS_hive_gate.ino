@@ -908,15 +908,17 @@ void loop(){
   //door management for phase 4 ------------------------------------------------
   //----------------------------------------------------------------------------
   if(habituation_phase == 4 || habituation_phase == 5){
+    static bool phase5Triggered = 0;
     if(!door_moving[HCdoor] && !door_moving[TCdoor] && tm_state == 0x10 ){ 
-      if(habituation_phase == 4 && hour()>phase5Start && hour()>phase5End)
+      if(!phase5Triggered && habituation_phase == 4 && hour()>phase5Start && hour()>phase5End)
       {
-      
+        phase5Triggered=1;
         if (startPhase5())
           habituation_phase == 4;
       }   
-      else if(habituation_phase == 5 && hour()<phase5Start && hour()>phase5End)
+      else if(phase5Triggered && habituation_phase == 5 && hour()<phase5Start && hour()>phase5End)
       {
+          phase5Triggered=0;
           habituation_phase == 4;
       }   
     }
@@ -1655,6 +1657,9 @@ bool startPhase5()
   if(findTodaysRow(tagsOrder,4, numFound))
   {
     String SENSORDataString = createSENSORDataString("Phase 5","Order Found",SENSORDataString);
+    for (int8_t i = 0; i <4; i++) {
+        String SENSORDataString = createSENSORDataString("Phase 5",String(tagsOrder[i]),SENSORDataString);
+    }
   }
   else
   {
