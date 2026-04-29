@@ -174,6 +174,7 @@ uint32_t starttime;        //start of programm
 uint32_t rtccheck_time;    //time the rtc was checked last
 uint64_t lastMouseSightingTime =0;
 
+uint32_t lastIRBBuffer=0;
 uint8_t phase5Start=8;
 uint8_t phase5End=12;
 uint32_t tagsOrder[4] = {};
@@ -223,19 +224,22 @@ const uint8_t debug = 1;
 uint8_t habituation_phase = 3;
 
 //time mouse is kept in transition (inside gate) with both doors closed (ms)
-uint16_t transition_delay = 10000; //ms
+uint16_t transition_delay = 2000; //ms
+
+//time door is open waiting for moiuse to enter
+uint16_t wait_delay = 10000; //ms
 
 //time until fan1 is turned on
-const uint16_t fan1delay = 30000; //ms door 1 open and until fan1 is turned on
+const uint16_t fan1delay = 10000; //ms door 1 open and until fan1 is turned on
 
-uint16_t wait_delay =10000;
+
 //##############################################################################
 //#####   S E T U P   ##########################################################
 //##############################################################################
 void setup(){
   //----- USER CONFIG (CONTINUED) ----------------------------------------------
-  door_speed[HCdoor] = 125;     //speed is the us delay between steps. 0 is fastest possible, and slower the higher the value (250 starting value)
-  door_speed[TCdoor] = 125;
+  door_speed[HCdoor] = 75;     //speed is the us delay between steps. 0 is fastest possible, and slower the higher the value (250 starting value)
+  door_speed[TCdoor] = 75;
   door_stays_open_min = 8000;   //minimum time a door stays open
 
   //----- Extra Variable setup -------------------------------------------------
@@ -433,14 +437,16 @@ void setup(){
     door_open[TCdoor] = 1;
 
     moveDoor(doorMod1,TCdoor,down); //close TCdoor
+    moveDoor(doorMod1,HCdoor,down); //close TCdoor
     while(getDoorModuleStatus(doorMod1)) delay(250);
     door_moving[HCdoor] = 0;
     door_moving[TCdoor] = 0;
     door_open[TCdoor] = 0;
+    door_open[HCdoor] = 0;
 
     tm_state = 0x1A;  //start in state 1A
   }
-    //transitionmanagement habituation phase 4
+    //transitionmanagement habituation phase 3
   if(habituation_phase == 4){
     //ensure both doors start in open position
     moveDoor(doorMod1,HCdoor,up); //open HCdoor
@@ -622,8 +628,10 @@ void loop(){
     if(sb >= buffer_reads) sb = 0;
 
     //debug only, print buffer (all)
-    if((IR1_cbuffer_sum + IR2_cbuffer_sum + IR3_cbuffer_sum + IR4_cbuffer_sum) > 0){
+    static uint32_t buffer=IR1_cbuffer_sum + IR2_cbuffer_sum + IR3_cbuffer_sum + IR4_cbuffer_sum;
+    if(buffer!=lastIRBBuffer && ((buffer) > 0)){
       if((debug>=1)&&(sb%25==0)){
+        buffer=lastIRBBuffer;
         SENSORDataString=createSENSORDataString("IRB",String(IR1_cbuffer_sum)+"|"+String(IR2_cbuffer_sum)+":"+String(IR3_cbuffer_sum)+"-"+String(IR4_cbuffer_sum)+":"+String(IR34_cbuffer_sum),SENSORDataString);
         Serial.println(String(IR1_cbuffer_sum)+"|"+String(IR2_cbuffer_sum)+":"+String(IR3_cbuffer_sum)+"-"+String(IR4_cbuffer_sum)+":"+String(IR34_cbuffer_sum));
       }
@@ -709,110 +717,122 @@ void loop(){
       
     }
   } //end habituation phase 1
-
-  //----------------------------------------------------------------------------
+//----------------------------------------------------------------------------
   //door management for phase 3 ------------------------------------------------
   //----------------------------------------------------------------------------
   if(habituation_phase == 3){
     //--- state 1 - D1 open, D2 closed, mouse can enter towards tc, or leave towards hc
     if(!door_moving[HCdoor] && !door_moving[TCdoor]){ //advance transitionmanagement only when doors are not moving
-      //if failsave for double mouse triggered
-      if((tm_state == 0x1A || tm_state == 0x1B) && doublemouseflag){
+      //if failsave for mouse in middle when closed
+      if((tm_state == 0x1A || tm_state == 0x1B) && IR_middle_csum>2){
         tm_state = 0xFA;
         SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
-        tm_state_restart = 0x3B;
+        tm_state_restart = 0x1A;
         SENSORDataString = createSENSORDataString("TMr",String(tm_state_restart,HEX),SENSORDataString);
       }
-      //state 0x1A move towards tc
-      if((tm_state == 0x1A) && IR4_cbuffer_sum){
-        moveDoor(doorMod1,HCdoor,down); //close door
-        SENSORDataString = createSENSORDataString("D1", "closing", SENSORDataString);
+      //state 0x1A move towards TC
+      if((tm_state == 0x1A) && (IR1_cbuffer_sum)){
+        moveDoor(doorMod1,HCdoor,up); //close door
+        SENSORDataString = createSENSORDataString("D1", "opening", SENSORDataString);
         tm_state = 0x2A;
         SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
       }
-      //state 0x1B move towards hc
-      if(tm_state == 0x1B){
-        if(millis() - door_stop_time[HCdoor] >= door_stays_open_min){
-          tm_state = 0x1A;
-          SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString); //HCdoor is kept open to allow mouse to exit
+      //state 0x1A move towards hc
+      if((tm_state == 0x1A) && (IR2_cbuffer_sum)){
+        moveDoor(doorMod1,TCdoor,up); //close door
+        SENSORDataString = createSENSORDataString("D2", "opening", SENSORDataString);
+        tm_state = 0x3A;
+        SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
         }
       }
-    }
+    
     //--- state 2 - D1 closed, D2 closed, mouse is in middle and transitions towards hc or tc
     if(!door_moving[HCdoor] && !door_moving[TCdoor]){ //advance transitionmanagement only when doors are not moving
       //state 0x2A transit towards tc
       if(tm_state == 0x2A){
-        if(millis() - door_stop_time[HCdoor] >= transition_delay){
+        if(millis() - door_stop_time[HCdoor] >= wait_delay){
           if(!IR_middle_csum){ //no mouse in middle (formerly individual IRs, not coincidence)
-            moveDoor(doorMod1,HCdoor,up);
-            SENSORDataString = createSENSORDataString("D1", "opening", SENSORDataString);
+            moveDoor(doorMod1,HCdoor,down);
+            SENSORDataString = createSENSORDataString("D1", "down", SENSORDataString);
             tm_state = 0x1A;
             SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
           }
-          else{ //check multimice/mouse ident that requires clearing of middle
-            uint8_t go = 1;
-            if(IR34_cbuffer_sum >= 20){ //all IRs in the middle are triggered
-              go = 1; //multimice detection
-              SENSORDataString = createSENSORDataString("MM","multimice",SENSORDataString);
-            }
-            //if(doublemouseflag) go = 0; //treat double mouse same as multimice with different restart state
-            //if(!mouse_ident) go = 0;
-            if(go){
-              moveDoor(doorMod1,TCdoor,up); //open door
-              SENSORDataString = createSENSORDataString("D2", "opening", SENSORDataString);
-              tm_state = 0x3A;
-              SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
-              tc_occupied = 1;
-              SENSORDataString = createSENSORDataString("TC","occupied",SENSORDataString); //testcage is now occupied
-            }
-            else{
-              tm_state = 0xFA;  //go to failsave state where tube needs to be empty
-              SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
-              tm_state_restart = 0x1A;
-              if(doublemouseflag) tm_state_restart = 0x3B;
-              SENSORDataString = createSENSORDataString("TMr",String(tm_state_restart,HEX),SENSORDataString);
-            }
+        }
+        if(IR_middle_csum){
+            moveDoor(doorMod1,HCdoor,down);
+            SENSORDataString = createSENSORDataString("D1", "down", SENSORDataString);
+            tm_state = 0x2B;
+            SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
+          }
+        
+      }
+
+      if(tm_state == 0x3A){
+        if(millis() - door_stop_time[TCdoor] >= wait_delay){
+          if(!IR_middle_csum){ //no mouse in middle (formerly individual IRs, not coincidence)
+            moveDoor(doorMod1,TCdoor,down);
+            SENSORDataString = createSENSORDataString("D2", "down", SENSORDataString);
+            tm_state = 0x1A;
+            SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
           }
         }
-      }
-      //state 0x2B transit towards hc
-      if(tm_state == 0x2B){
-        if(millis() - door_stop_time[TCdoor] >= transition_delay){
-          uint8_t go = 1;
-          if(!IR_middle_csum) go = 0;
-          if(go){
-            moveDoor(doorMod1,HCdoor,up); //open door
-            SENSORDataString = createSENSORDataString("D1", "opening", SENSORDataString);
-            tm_state = 0x1B;
-            SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
-            tc_occupied = 0;
-            SENSORDataString = createSENSORDataString("TC","empty",SENSORDataString);} //testcage is no longer occupied
-          else{
-            moveDoor(doorMod1,TCdoor,up); //open door
-            SENSORDataString = createSENSORDataString("D2", "opening", SENSORDataString); //maximum logging
+        if(IR_middle_csum){
+            moveDoor(doorMod1,TCdoor,down);
+            SENSORDataString = createSENSORDataString("D2", "down", SENSORDataString);
             tm_state = 0x3B;
             SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
           }
-        }
+        
       }
     }
-    //--- state 3 - D1 closed, D2 open, mouse can leave towards tc, or enter from tc
+    //--- state 3 - Doors closed, wait for transition time then open other door
     if(!door_moving[HCdoor] && !door_moving[TCdoor]){ //advance transitionmanagement only when doors are not moving
-      //state 0x3B move towards hc
-      if((tm_state == 0x3B) && IR3_cbuffer_sum){
-        moveDoor(doorMod1,TCdoor,down); //close door, state = 0x2B after door movement
-        SENSORDataString = createSENSORDataString("D2", "closing", SENSORDataString); //maximum logging
-        tm_state = 0x2B;
+      //state 0x2B move towards tc
+      if((tm_state == 0x2B) && (millis() - door_stop_time[HCdoor] >= transition_delay)){
+        moveDoor(doorMod1,TCdoor,up);
+        SENSORDataString = createSENSORDataString("D2", "opening", SENSORDataString); //maximum logging
+        tm_state = 0x2C;
         SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
       }
-      //state 0x3A move towards tc
-      if(tm_state == 0x3A){
-        if(millis() - door_stop_time[TCdoor] >= door_stays_open_min){
-          tm_state = 0x3B;
-          SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
-        }
+      if((tm_state == 0x3B) && (millis() - door_stop_time[TCdoor] >= transition_delay)){
+        moveDoor(doorMod1,HCdoor,up); 
+        SENSORDataString = createSENSORDataString("D1", "opening", SENSORDataString); //maximum logging
+        tm_state = 0x3C;
+        SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
       }
     }
+    //--- state 3last - Door Opened, wait for mouse to leave then reset
+    if(!door_moving[HCdoor] && !door_moving[TCdoor]){ //advance transitionmanagement only when doors are not moving
+      //state 0x2B move towards tc
+      if((tm_state == 0x2C) && (!IR_middle_csum) && IR2_cbuffer_sum){
+        moveDoor(doorMod1,TCdoor,down); 
+        SENSORDataString = createSENSORDataString("D2", "closing", SENSORDataString); //maximum logging
+        tm_state = 0x1A;
+        SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
+      }
+      else if((tm_state == 0x2C) && (millis() - door_stop_time[TCdoor] >= 30000))
+      {
+        moveDoor(doorMod1,TCdoor,down); 
+        SENSORDataString = createSENSORDataString("D2", "closing", SENSORDataString); //maximum logging
+        SENSORDataString = createSENSORDataString("TM", "Mouse Not Seen Leaving Reset", SENSORDataString); //maximum logging
+        tm_state = 0x1A;
+        SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
+      }
+      if((tm_state == 0x3C) && (!IR_middle_csum) && IR1_cbuffer_sum){
+        moveDoor(doorMod1,HCdoor,down); 
+        SENSORDataString = createSENSORDataString("D1", "closing", SENSORDataString); //maximum logging
+        tm_state = 0x1A;
+        SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
+      }else if((tm_state == 0x3C) && (millis() - door_stop_time[HCdoor] >= 30000))
+      {
+        moveDoor(doorMod1,HCdoor,down); 
+        SENSORDataString = createSENSORDataString("D1", "closing", SENSORDataString); //maximum logging
+        SENSORDataString = createSENSORDataString("TM", "Mouse Not Seen Leaving Reset", SENSORDataString); //maximum logging
+        tm_state = 0x1A;
+        SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
+      }      
+    }
+    
 
     //Failsaves ------------------------------------------------------------------
     //unified fail recovery state
@@ -848,8 +868,10 @@ void loop(){
         SENSORDataString = createSENSORDataString("FAN","fan2 off",SENSORDataString);
         tm_state = tm_state_restart;
         if(tm_state == 0x1A){
-          moveDoor(doorMod1,HCdoor,up);
-          SENSORDataString = createSENSORDataString("D1", "opening FS", SENSORDataString);
+          moveDoor(doorMod1,HCdoor,down);
+          SENSORDataString = createSENSORDataString("D1", "closing", SENSORDataString);
+          moveDoor(doorMod1,TCdoor,down);
+          SENSORDataString = createSENSORDataString("D2", "closing", SENSORDataString);
         }
         if(tm_state == 0x3B){
           moveDoor(doorMod1,TCdoor,up);
@@ -891,11 +913,11 @@ void loop(){
       {
       
         if (startPhase5())
-          habituation_phase == 5
+          habituation_phase == 5;
       }   
       else if(habituation_phase == 5 && hour()<phase5Start && hour()>phase5End)
       {
-          habituation_phase == 4
+          habituation_phase == 4;
       }   
     }
     //--- state 1 - D1 open, D2 closed, mouse can enter towards tc, or leave towards hc
