@@ -160,6 +160,11 @@ uint8_t currenttag1[6] = {}; //saves id of the tag that was read during the curr
 uint8_t currenttag2[6] = {};
 uint8_t lasttag1[6] = {};    //saves id of the tag that was read during the previous read cycle
 uint8_t lasttag2[6] = {};
+uint8_t lastTagSeen1[6] = {};    //saves id of the last tag that was actually seen
+uint8_t lastTagSeen2[6] = {};
+long lastR1Time=0; // time in millis the last actual tag was seen
+long lastR2Time=0;
+
 uint8_t activeTag[6] = {};
 bool hasActiveTag=0;
 uint8_t targetTag[6] = {};
@@ -176,6 +181,8 @@ uint32_t rtccheck_time;    //time the rtc was checked last
 uint64_t lastMouseSightingTime =0;
 
 uint32_t lastIRBBuffer=0;
+long lastR1Time=0;
+long lastR2Time=0;
 uint8_t phase5Start=8;
 uint8_t phase5End=12;
 uint32_t tagsOrder[4] = {};
@@ -499,6 +506,11 @@ void loop(){
         uint8_t tag1_switch = compareTags(currenttag1,lasttag1);
         RFIDdataString = createRFIDDataString(currenttag1, lasttag1, tag1_present, tag1_switch, "R1"); //create datastring that is written to uSD
         for(uint8_t i = 0; i < sizeof(currenttag1); i++) lasttag1[i] = currenttag1[i]; //copy currenttag to lasttag
+        if (tag1_present)
+        {
+          lastR1Time=millis();
+          for(uint8_t i = 0; i < sizeof(currenttag1); i++) lastTagSeen1[i] = currenttag1[i]; //copy currenttag to lasttag
+        }
       }
       else{
         RFIDtoggle = 1; //toggle the toggle
@@ -510,6 +522,11 @@ void loop(){
         uint8_t tag2_switch = compareTags(currenttag2,lasttag2);
         RFIDdataString = createRFIDDataString(currenttag2, lasttag2, tag2_present, tag2_switch, "R2"); //create datastring that is written to uSD
         for(uint8_t i = 0; i < sizeof(currenttag2); i++) lasttag2[i] = currenttag2[i]; //copy currenttag to lasttag
+        if (tag2_present)
+        {
+          lastR2Time=millis();
+          for(uint8_t i = 0; i < sizeof(currenttag2); i++) lastTagSeen2[i] = currenttag2[i]; //copy currenttag to lasttag
+        }
       }
     }
   }
@@ -1073,12 +1090,13 @@ void loop(){
                 moveDoor(doorMod1,TCdoor,down); //open door
         SENSORDataString = createSENSORDataString("D2", "closing", SENSORDataString); 
         
-        SENSORDataString = createSENSORDataString("RETURN",getID(lasttag2),SENSORDataString);   
-        if(hasActiveTag && !compareTags(lasttag2,activeTag))
+        SENSORDataString = createSENSORDataString("RETURN",getID(lasttag2),SENSORDataString);  
+         
+        if(hasActiveTag && !compareTags(lastTagSeen2,activeTag))
           {
           SENSORDataString = createSENSORDataString("MISMATCH",getID(activeTag),SENSORDataString);   
           }
-        else if(hasActiveTag && compareTags(lasttag2,activeTag))
+        else if(hasActiveTag && compareTags(lastTagSeen2,activeTag))
         {
           hasActiveTag=0;
         }
@@ -1086,6 +1104,7 @@ void loop(){
         tm_state = 0x2B;
         SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
       }
+      
       else if(tm_state == 0x3D && !IR3_cbuffer_sum && (millis() - door_stop_time[TCdoor] >= wait_delay))
         {
         moveDoor(doorMod1,TCdoor,down); //open door
@@ -1105,11 +1124,11 @@ void loop(){
       }
       //state 0x3B Wait before closing
             if(tm_state == 0x3B){        
-        if(millis() - door_stop_time[TCdoor] >= 4000){     
+        if(lastR2Time > door_stop_time[TCdoor]){     
           //copyTags(lasttag2,activeTag);
-          fetchtag(reader2,1);
-          for(uint8_t i = 0; i < sizeof(tag); i++) activeTag[i] = tag[i]; //copy currenttag to lasttag
-          hasActiveTag=0;
+          
+          for(uint8_t i = 0; i < sizeof(tag); i++) activeTag[i] = lastTagSeen2[i]; //copy currenttag to lasttag
+          hasActiveTag=1;
           tc_occupied=1;
           
           SENSORDataString = createSENSORDataString("ACTIVE",getID(activeTag),SENSORDataString);   
