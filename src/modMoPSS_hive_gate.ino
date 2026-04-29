@@ -913,7 +913,7 @@ void loop(){
       {
       
         if (startPhase5())
-          habituation_phase == 5;
+          habituation_phase == 4;
       }   
       else if(habituation_phase == 5 && hour()<phase5Start && hour()>phase5End)
       {
@@ -1065,6 +1065,11 @@ void loop(){
           {
           SENSORDataString = createSENSORDataString("MISMATCH",getID(lasttag2),SENSORDataString);   
           }
+        else
+        {
+          
+        }
+        
         tm_state = 0x2B;
         SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
       }
@@ -1089,6 +1094,7 @@ void loop(){
             if(tm_state == 0x3B){        
         if(millis() - door_stop_time[TCdoor] >= 1000){     
           copyTags(lasttag2,activeTag);
+          tc_occupied=1;
           SENSORDataString = createSENSORDataString("ACTIVE",getID(activeTag),SENSORDataString);   
           tm_state = 0x3C;
           SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
