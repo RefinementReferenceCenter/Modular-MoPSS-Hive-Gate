@@ -181,8 +181,6 @@ uint32_t rtccheck_time;    //time the rtc was checked last
 uint64_t lastMouseSightingTime =0;
 
 uint32_t lastIRBBuffer=0;
-long lastR1Time=0;
-long lastR2Time=0;
 uint8_t phase5Start=8;
 uint8_t phase5End=12;
 uint32_t tagsOrder[4] = {};
@@ -1118,7 +1116,7 @@ void loop(){
           tm_state = 0x3B;
           moveDoor(doorMod1,TCdoor,down); //close door, state = 0x3B after door movement
           SENSORDataString = createSENSORDataString("D2", "closing", SENSORDataString); //maximum logging
-          SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
+          SENSORDataString = createSENSORDataString("TM",String(  tm_state,HEX),SENSORDataString);
         
 
       }
