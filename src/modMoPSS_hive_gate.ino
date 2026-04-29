@@ -973,7 +973,7 @@ void loop(){
         }
       }
       //state 0x1A move towards tc
-      if((tm_state == 0x1A) && IR4_cbuffer_sum){
+      if((tm_state == 0x1A) && IR_middle_csum){
       
       
         moveDoor(doorMod1,HCdoor,down); //close door
@@ -984,6 +984,14 @@ void loop(){
       
 
       }
+      else if((tm_state == 0x1A) && (millis() - door_stop_time[HCdoor] >= wait_delay))
+      {
+        moveDoor(doorMod1,HCdoor,down); //close door
+        SENSORDataString = createSENSORDataString("D1", "closing", SENSORDataString);
+        tm_state = 0x10;
+        SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
+      }
+
       //state 0x1B move towards hc
       if(tm_state == 0x1B){
         if(millis() - door_stop_time[HCdoor] >= door_stays_open_min){
