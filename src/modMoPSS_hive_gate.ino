@@ -285,13 +285,15 @@ void setup(){
   oled.setI2CAddress(oledDisplay);
   oled.begin();
   oled.setFont(u8g2_font_6x10_mf); //set font w5 h10
-
+  SD.begin(SDcs);
+  
   //----- Setup RFID readers ---------------------------------------------------
   //measure resonant frequency and confirm/repeat on detune
   uint8_t RFIDmodulestate = 0;
   int32_t reader1_freq = 0;
   int32_t reader2_freq = 0;
   while(RFIDmodulestate == 0){
+    Serial.println("A");
     OLEDprint(0,0,1,1,">>> RFID Setup <<<");
     OLEDprint(1,0,0,1,"reader 1:");
     OLEDprint(2,0,0,1,"reader 2:");
@@ -924,20 +926,20 @@ void loop(){
   //door management for phase 4 ------------------------------------------------
   //----------------------------------------------------------------------------
   if(habituation_phase == 4 || habituation_phase == 5){
-    // static bool phase5Triggered = 0;
-    // if(!door_moving[HCdoor] && !door_moving[TCdoor] && tm_state == 0x10 ){ 
-    //   if(!phase5Triggered && habituation_phase == 4 && hour()>phase5Start && hour()>phase5End)
-    //   {
-    //     phase5Triggered=1;
-    //     if (startPhase5())
-    //       habituation_phase == 4;
-    //   }   
-    //   else if(phase5Triggered && habituation_phase == 5 && hour()<phase5Start && hour()>phase5End)
-    //   {
-    //       phase5Triggered=0;
-    //       habituation_phase == 4;
-    //   }   
-    // }
+    static bool phase5Triggered = 0;
+    if(!door_moving[HCdoor] && !door_moving[TCdoor] && tm_state == 0x10 ){ 
+      if(!phase5Triggered && habituation_phase == 4 && hour()>phase5Start && hour()<phase5End)
+      {
+        phase5Triggered=1;
+        if (startPhase5())
+          habituation_phase == 5;
+      }   
+      else if(phase5Triggered && habituation_phase == 5 && hour()<phase5Start && hour()>phase5End)
+      {
+          phase5Triggered=0;
+          habituation_phase == 4;
+      }   
+    }
     //--- state 1 - D1 open, D2 closed, mouse can enter towards tc, or leave towards hc
     if(!door_moving[HCdoor] && !door_moving[TCdoor]){ //advance transitionmanagement only when doors are not moving
       //if failsave for double mouse triggered
@@ -966,9 +968,9 @@ void loop(){
        }
        else if(habituation_phase == 5){
         //check if we have the mouse we want
-        if (tagsOrder[activeTagNumber]==lastXDigits(getID64(lasttag1), 4))
+        if (tagsOrder[activeTagNumber]==lastXDigits(getID64(lastTagSeen1), 4))
         {
-        copyTags(lasttag1, activeTag);
+        for(uint8_t i = 0; i < sizeof(activeTag); i++) activeTag[i] = lastTagSeen1[i]; //copy currenttag to lasttag
         moveDoor(doorMod1,HCdoor,up); //open door
         SENSORDataString = createSENSORDataString("D1", "opening", SENSORDataString);      
         tm_state = 0x1A;
@@ -1110,6 +1112,14 @@ void loop(){
         {
           SENSORDataString = createSENSORDataString("MATCH",getID(activeTag),SENSORDataString);   
           hasActiveTag=0;
+          if(habituation_phase == 5)
+          {
+            activeTagNumber=activeTagNumber+1;
+            if(activeTagNumber>4)
+            {
+              habituation_phase=4;
+            }
+          }
         }
         
         tm_state = 0x2B;
@@ -1138,7 +1148,7 @@ void loop(){
         if(lastR2Time > door_stop_time[TCdoor]){     
           //copyTags(lasttag2,activeTag);
           
-          for(uint8_t i = 0; i < sizeof(tag); i++) activeTag[i] = lastTagSeen2[i]; //copy currenttag to lasttag
+          for(uint8_t i = 0; i < sizeof(activeTag); i++) activeTag[i] = lastTagSeen2[i]; //copy currenttag to lasttag
           hasActiveTag=1;
           tc_occupied=1;
           
@@ -1699,17 +1709,24 @@ bool startPhase5()
 {
   
   uint8_t numFound;
+  String SENSORDataString;
+  
   if(findTodaysRow(tagsOrder,4, numFound))
   {
-    String SENSORDataString = createSENSORDataString("Phase 5","Order Found",SENSORDataString);
+    SENSORDataString = createSENSORDataString("Phase 5","Order Found",SENSORDataString);
     for (int8_t i = 0; i <4; i++) {
-        String SENSORDataString = createSENSORDataString("Phase 5",String(tagsOrder[i]),SENSORDataString);
+    SENSORDataString = createSENSORDataString("Phase 5",String(tagsOrder[i]),SENSORDataString);
     }
   }
   else
   {
-    String SENSORDataString = createSENSORDataString("Phase 5","Order Not Found",SENSORDataString);
+     SENSORDataString = createSENSORDataString("Phase 5","Order Not Found",SENSORDataString);
   }
+      dataFile.println(SENSORDataString); //append Datastring to file
+    dataFile.flush();
+    dataFileBackup.println(SENSORDataString);
+    dataFileBackup.flush();
+    if(is_testing == 1) Serial.println(SENSORDataString); //print to serial if in testmode
 }
 
 // Fills 'out' with zero-padded decimal of 'val' using 'digits' characters
@@ -1746,17 +1763,22 @@ static uint8_t parseValues(const char* p, uint32_t* vals, uint8_t maxVals) {
 bool findTodaysRow(uint32_t* vals, uint8_t maxVals, uint8_t& numFound) {
     
     char dateStr[11];
+    char line[250];
     buildDateStr(dateStr);
+    FsFile file =SD.open("ORDER.TXT", FILE_READ);
+    if (!file) 
+    {
+      Serial.println("FILE NOT FOUND");
+      return false;
+      
+    }
 
-    FsFile file;
-    if (!SD.open("order.csv", O_RDONLY)) return false;
-
-    char line[64];          // adjust to your max line length
+    
     uint8_t pos = 0;
     int16_t c;
-
     while ((c = file.read()) >= 0) {
         if (c == '\n' || c == '\r') {
+          Serial.print(c);
             if (pos > 0) {
                 line[pos] = '\0';
                 // Match the date prefix
@@ -1772,6 +1794,10 @@ bool findTodaysRow(uint32_t* vals, uint8_t maxVals, uint8_t& numFound) {
         }
     }
 
+
     file.close();
+    
+    Serial.println();
+    Serial.println(dateStr);
     return false;
 }
