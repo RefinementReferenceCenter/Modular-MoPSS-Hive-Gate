@@ -49,7 +49,8 @@ _______/                  |-----   X cm  -----|                  \________
 #include <SdFat.h>    //Access SD Cards
 #include <U8g2lib.h>  //for SSD1306 OLED Display
 #include <cstdint>
-
+#include "Arduino.h"
+#include "ModMoPSS_logo.h"
 
 
 //----- declaring variables ----------------------------------------------------
@@ -259,6 +260,8 @@ void setup(){
     //while(!Serial); //wait for serial connection
     Serial.println("alive");
   }
+  delay(10);
+  
   
   //start I2C
   Wire.begin();
@@ -285,6 +288,15 @@ void setup(){
   oled.setI2CAddress(oledDisplay);
   oled.begin();
   oled.setFont(u8g2_font_6x10_mf); //set font w5 h10
+  oled.clear();
+    oled.drawXBM(0,0, ModMopSS_logo_width, ModMopSS_logo_height, ModMopSS_logo_bits);
+  OLEDprint(3,0,0,0,"MoPSS Modular");
+    OLEDprint(4,0,0,0,"Starting....");
+
+  
+  oled.updateDisplay();
+  //while(!Serial); //wait for serial connection
+    delay(1000);
   SD.begin(SDcs);
   
   //----- Setup RFID readers ---------------------------------------------------
@@ -293,7 +305,7 @@ void setup(){
   int32_t reader1_freq = 0;
   int32_t reader2_freq = 0;
   while(RFIDmodulestate == 0){
-    Serial.println("A");
+    
     OLEDprint(0,0,1,1,">>> RFID Setup <<<");
     OLEDprint(1,0,0,1,"reader 1:");
     OLEDprint(2,0,0,1,"reader 2:");
@@ -970,7 +982,8 @@ void loop(){
         //check if we have the mouse we want
         if (tagsOrder[activeTagNumber]==lastXDigits(getID64(lastTagSeen1), 4))
         {
-        for(uint8_t i = 0; i < sizeof(activeTag); i++) activeTag[i] = lastTagSeen1[i]; //copy currenttag to lasttag
+          copyTags(lastTagSeen1,activeTag);
+          //for(uint8_t i = 0; i < sizeof(activeTag); i++) activeTag[i] = lastTagSeen1[i]; //copy currenttag to lasttag
         moveDoor(doorMod1,HCdoor,up); //open door
         SENSORDataString = createSENSORDataString("D1", "opening", SENSORDataString);      
         tm_state = 0x1A;
@@ -1146,9 +1159,9 @@ void loop(){
       //state 0x3B Wait before closing
             if(tm_state == 0x3B){        
         if(lastR2Time > door_stop_time[TCdoor]){     
-          //copyTags(lasttag2,activeTag);
+          copyTags(lastTagSeen2,activeTag);
           
-          for(uint8_t i = 0; i < sizeof(activeTag); i++) activeTag[i] = lastTagSeen2[i]; //copy currenttag to lasttag
+          //for(uint8_t i = 0; i < sizeof(activeTag); i++) activeTag[i] = lastTagSeen2[i]; //copy currenttag to lasttag
           hasActiveTag=1;
           tc_occupied=1;
           
@@ -1526,7 +1539,7 @@ uint8_t fetchtag(byte reader, byte busrelease){
 }
 
 //copy tag from source to dest
-uint8_t copyTags(byte source[], byte dest[]){
+void copyTags(byte source[], byte dest[]){
   for(uint8_t i = 0; i < sizeof(source); i++) dest[i] = source[i]; //copy currenttag to lasttag
 }
 //compare current and last tag, no change 0, new tag entered 1, switch 2 (2 present), tag left 3
