@@ -86,7 +86,7 @@ uint8_t IR2_trigd[2] = {0,0};
 uint8_t IR3_trigd[2] = {0,0};
 uint8_t IR4_trigd[2] = {0,0};
 
-const uint8_t buffer_reads = 50;
+const uint8_t buffer_reads = 10;
 uint8_t IR1_buffer[2][buffer_reads] = {};
 uint8_t IR2_buffer[2][buffer_reads] = {};
 uint8_t IR3_buffer[2][buffer_reads] = {};
@@ -165,6 +165,7 @@ uint8_t lastTagSeen1[6] = {};    //saves id of the last tag that was actually se
 uint8_t lastTagSeen2[6] = {};
 long lastR1Time=0; // time in millis the last actual tag was seen
 long lastR2Time=0;
+long lastTCEnterTime=0;
 
 uint8_t activeTag[6] = {};
 bool hasActiveTag=0;
@@ -186,6 +187,7 @@ uint8_t phase5Start=8;
 uint8_t phase5End=12;
 uint32_t tagsOrder[4] = {};
 uint8_t activeTagNumber = 0;
+bool phase5Triggered = 0;
 
 //Mice tags
 const uint8_t mice = 15;           //number of mice in experiment (add 1 for mouse 0, add 2 for test-mice)
@@ -320,7 +322,34 @@ void setup(){
       OLEDprint(4,0,0,1,"Antenna detuned!");
       OLEDprint(5,0,0,1,"CONFIRM");
       OLEDprint(5,14,0,1,"REPEAT");
-      uint8_t buttonpress = getButton();
+       elapsedMillis waited;
+    waited=0;
+    uint8_t buttonpress;
+    RFIDmodulestate=1;
+    while (waited<3000)
+    {
+
+      oled.drawBox(0,32, 128*waited/3000,8);
+        #ifdef SERIAL_TUNING
+      ansi.gotoXY(20*waited/3000,4);
+      ansi.print("▓");
+      
+      ansi.gotoXY(20,3);
+      ansi.print("│");
+      #endif 
+      oled.sendBuffer();
+       buttonpress = getNBButton();
+        
+       if (buttonpress ==1) 
+       {RFIDmodulestate = 1;
+        break;
+       }
+       if (buttonpress ==3) 
+       {
+        RFIDmodulestate=0;
+        break;
+       }
+    }
       if(buttonpress == 1) RFIDmodulestate = 1;
     }
     else{
@@ -356,8 +385,10 @@ void setup(){
     Serial.println("Internal SD card initialized successfully!");
     OLEDprint(2,13,0,1,"OK!");
   }
+  Serial.print("# Habituation phase: ");
+  Serial.println(habituation_phase);
   delay(1000);
-
+    
   //----- Setup log file, and write initial configuration ----------------------
   dataFile = SD.open("RFIDLOG.TXT", FILE_WRITE); //open file, or create if empty
   dataFileBackup = SDb.open("RFIDLOG_BACKUP.TXT", FILE_WRITE);
@@ -660,7 +691,7 @@ void loop(){
     //debug only, print buffer (all)
     static uint32_t buffer=IR1_cbuffer_sum + IR2_cbuffer_sum + IR3_cbuffer_sum + IR4_cbuffer_sum;
     if(buffer!=lastIRBBuffer && ((buffer) > 0)){
-      if((debug>=1)&&(sb%25==0)){
+      if((debug>=1)){
         buffer=lastIRBBuffer;
         SENSORDataString=createSENSORDataString("IRB",String(IR1_cbuffer_sum)+"|"+String(IR2_cbuffer_sum)+":"+String(IR3_cbuffer_sum)+"-"+String(IR4_cbuffer_sum)+":"+String(IR34_cbuffer_sum),SENSORDataString);
         Serial.println(String(IR1_cbuffer_sum)+"|"+String(IR2_cbuffer_sum)+":"+String(IR3_cbuffer_sum)+"-"+String(IR4_cbuffer_sum)+":"+String(IR34_cbuffer_sum));
@@ -938,36 +969,55 @@ void loop(){
   //door management for phase 4 ------------------------------------------------
   //----------------------------------------------------------------------------
   if(habituation_phase == 4 || habituation_phase == 5){
-    static bool phase5Triggered = 0;
-    if(!door_moving[HCdoor] && !door_moving[TCdoor] && tm_state == 0x10 ){ 
-      if(!phase5Triggered && habituation_phase == 4 && hour()>phase5Start && hour()<phase5End)
-      {
-        phase5Triggered=1;
-        if (startPhase5())
-          habituation_phase == 5;
-      }   
-      else if(phase5Triggered && habituation_phase == 5 && hour()<phase5Start && hour()>phase5End)
-      {
-          phase5Triggered=0;
-          habituation_phase == 4;
-      }   
-    }
+    
+    // if(!door_moving[HCdoor] && !door_moving[TCdoor] && tm_state == 0x10 ){ 
+
+    //   if(!phase5Triggered && (habituation_phase == 4) && (hour()>=phase5Start) && (hour()<phase5End))
+    //   {
+    //     phase5Triggered=1;
+    //     if (startPhase5())
+    //       {habituation_phase == 5;
+    //       SENSORDataString = createSENSORDataString("PHASE",String(5),SENSORDataString);
+    //       }
+    //   }   
+    //   else if(phase5Triggered && habituation_phase == 5 && hour()<phase5Start && hour()>=phase5End)
+    //   {
+    //       phase5Triggered=0;
+    //       habituation_phase == 4;
+    //   }   
+    // }
     //--- state 1 - D1 open, D2 closed, mouse can enter towards tc, or leave towards hc
     if(!door_moving[HCdoor] && !door_moving[TCdoor]){ //advance transitionmanagement only when doors are not moving
       //if failsave for double mouse triggered
+      if(lastTCEnterTime && (millis()-lastTCEnterTime)>2*60*60*1000)
+      {
+        //tm_state=0x10;
+        changeTMState(0x10);
+        moveDoor(doorMod1,HCdoor,down); //open door
+        SENSORDataString = createSENSORDataString("D1", "closing", SENSORDataString);      
+        moveDoor(doorMod1,TCdoor,down); //open door
+        SENSORDataString = createSENSORDataString("D2", "closing", SENSORDataString);      
+        hasActiveTag=0;
+        lastTCEnterTime=0;
+        //SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
+        SENSORDataString = createSENSORDataString("TM","Reset TC Timeout",SENSORDataString);
+      }
       if((tm_state == 0x10 ||tm_state == 0x1A || tm_state == 0x1B) && doublemouseflag){
         tm_state = 0xFA;
         SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
-        tm_state_restart = 0x3B;
+        tm_state_restart = 0x10;
         SENSORDataString = createSENSORDataString("TMr",String(tm_state_restart,HEX),SENSORDataString);
       }
       if(((tm_state == 0x10)) && IR2_cbuffer_sum){
-        tm_state = 0x3C;
+        //tm_state = 0x3C;
+        changeTMState(0x3C);
         tc_occupied=1;
       }
       else if(((tm_state == 0x10)) && IR_middle_csum){
-        tm_state = 0xFA;
-        tc_occupied=0;
+        
+        changeTMState(0xFA);
+        tm_state_restart = 0x10;
+        //tc_occupied=0;
       }
       //state 0x10 Both Doors Closed
       if((tm_state == 0x10) && IR1_cbuffer_sum){
@@ -975,8 +1025,9 @@ void loop(){
         moveDoor(doorMod1,HCdoor,up); //open door
         SENSORDataString = createSENSORDataString("D1", "opening", SENSORDataString);
         
-        tm_state = 0x1A;
-        SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
+        changeTMState(0x1A);
+        //tm_state = 0x1A;
+        //SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
        }
        else if(habituation_phase == 5){
         //check if we have the mouse we want
@@ -986,8 +1037,8 @@ void loop(){
           //for(uint8_t i = 0; i < sizeof(activeTag); i++) activeTag[i] = lastTagSeen1[i]; //copy currenttag to lasttag
         moveDoor(doorMod1,HCdoor,up); //open door
         SENSORDataString = createSENSORDataString("D1", "opening", SENSORDataString);      
-        tm_state = 0x1A;
-        SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
+        changeTMState(0x1A);
+        //SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
         }
         }
       }
@@ -997,8 +1048,9 @@ void loop(){
       
         moveDoor(doorMod1,HCdoor,down); //close door
         SENSORDataString = createSENSORDataString("D1", "closing", SENSORDataString);
-        tm_state = 0x2A;
-        SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
+        changeTMState(0x2A);
+        //tm_state = 0x2A;
+        //SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
       
       
 
@@ -1007,15 +1059,19 @@ void loop(){
       {
         moveDoor(doorMod1,HCdoor,down); //close door
         SENSORDataString = createSENSORDataString("D1", "closing", SENSORDataString);
-        tm_state = 0x10;
-        SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
+        changeTMState(0x1A);
+        //tm_state = 0x10;
+        //SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
       }
 
       //state 0x1B move towards hc
       if(tm_state == 0x1B){
-        if(millis() - door_stop_time[HCdoor] >= door_stays_open_min){
-          tm_state = 0x10;
-          SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString); //HCdoor is kept open to allow mouse to exit
+        if(IR1_cbuffer_sum){
+          SENSORDataString = createSENSORDataString("D1", "closing", SENSORDataString);
+          moveDoor(doorMod1,HCdoor,down); //close door
+          changeTMState(0x10);
+          // tm_state = 0x10;
+          // SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString); //HCdoor is kept open to allow mouse to exit
         }
       }
     }
@@ -1027,12 +1083,13 @@ void loop(){
           if(!IR_middle_csum){ //no mouse in middle (formerly individual IRs, not coincidence)
             //moveDoor(doorMod1,HCdoor,up);
             //SENSORDataString = createSENSORDataString("D1", "opening", SENSORDataString);
-            tm_state = 0x10;
-            SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
+            changeTMState(0x10);
+            // tm_state = 0x10;
+            // SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
           }
           else{ //check multimice/mouse ident that requires clearing of middle
             uint8_t go = 1;
-            if(IR34_cbuffer_sum >= 20){ //all IRs in the middle are triggered
+            if(IR34_cbuffer_sum >= buffer_reads*2){ //all IRs in the middle are triggered
               go = 0; //multimice detection
               SENSORDataString = createSENSORDataString("MM","multimice",SENSORDataString);
             }
@@ -1041,16 +1098,18 @@ void loop(){
             if(go){
               moveDoor(doorMod1,TCdoor,up); //open door
               SENSORDataString = createSENSORDataString("D2", "opening", SENSORDataString);
-              tm_state = 0x3B;
-              SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
+              changeTMState(0x3A);
+              // tm_state = 0x3A;
+              // SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
               tc_occupied = 1;
               SENSORDataString = createSENSORDataString("TC","occupied",SENSORDataString); //testcage is now occupied
             }
             else{
-              tm_state = 0xFA;  //go to failsave state where tube needs to be empty
-              SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
+              changeTMState(0xFA);
+              //tm_state = 0xFA;  //go to failsave state where tube needs to be empty
+              //SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
               tm_state_restart = 0x10;
-              if(doublemouseflag) tm_state_restart = 0x3B;
+              
               SENSORDataString = createSENSORDataString("TMr",String(tm_state_restart,HEX),SENSORDataString);
             }
           }
@@ -1062,27 +1121,31 @@ void loop(){
         
         {
             moveDoor(doorMod1,HCdoor,up); //open door
+            lastTCEnterTime=0;
             SENSORDataString = createSENSORDataString("D1", "opening", SENSORDataString);
             if(!hasActiveTag)
             {
-            tm_state = 0x1B;
-            SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
+            changeTMState(0x1B);
+            // tm_state = 0x1B;
+            // SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
 
             tc_occupied = 0;
             SENSORDataString = createSENSORDataString("TC","empty",SENSORDataString); //testcage is no longer occupied
             }
             else {
-            tm_state = 0x1B;
-            tc_occupied = 0;
-            SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
+            changeTMState(0x4A);
+            tc_occupied = 1;
+            // tm_state = 0x4A;
+            // SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
             }
         }
-        if(millis() - door_stop_time[TCdoor] >= wait_delay){
+        else if(millis() - door_stop_time[TCdoor] >= wait_delay){
         
             //moveDoor(doorMod1,TCdoor,up); //open door
             //SENSORDataString = createSENSORDataString("D2", "opening", SENSORDataString); //maximum logging
-            tm_state = 0x3C;
-            SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
+            changeTMState(0x3C);
+            // tm_state = 0x3C;
+            // SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
           }
         
       }
@@ -1093,35 +1156,38 @@ void loop(){
       if(tm_state == 0x4A && !IR_middle_csum){             
         moveDoor(doorMod1,HCdoor,down); //open door
         SENSORDataString = createSENSORDataString("D1 ", "down", SENSORDataString); 
-        tm_state = 0x3C;
-        SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
+        changeTMState(0x3C);
+        // tm_state = 0x3C;
+        // SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
         }
       
       //state 0x3C move towards hc
       if(tm_state == 0x3C && IR2_cbuffer_sum ){       
         moveDoor(doorMod1,TCdoor,up); //open door
         SENSORDataString = createSENSORDataString("D2", "opening", SENSORDataString); 
-        tm_state = 0x3D;
-        SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
+        changeTMState(0x3D);
+        // tm_state = 0x3D;
+        // SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
       }
 
-      if(tm_state == 0x3C && IR_middle_csum ){       
+      else if(tm_state == 0x3C && IR_middle_csum ){       
         
-        tm_state = 0x3D;
-        SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
+        changeTMState(0x3D);
+        // tm_state = 0x3D;
+        // SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
       }
-      if (tm_state == 0x3D && IR3_cbuffer_sum)
+      else if (tm_state == 0x3D && IR_middle_csum)
       {
                 moveDoor(doorMod1,TCdoor,down); //open door
         SENSORDataString = createSENSORDataString("D2", "closing", SENSORDataString); 
         
         SENSORDataString = createSENSORDataString("RETURN",getID(lastTagSeen2),SENSORDataString);  
          
-        if(hasActiveTag && !compareTags(lastTagSeen2,activeTag))
+        if(hasActiveTag && compareTags(lastTagSeen2,activeTag))
           {
           SENSORDataString = createSENSORDataString("MISMATCH",getID(activeTag),SENSORDataString);   
           }
-        else if(hasActiveTag && compareTags(lastTagSeen2,activeTag))
+        else if(hasActiveTag && !compareTags(lastTagSeen2,activeTag))
         {
           SENSORDataString = createSENSORDataString("MATCH",getID(activeTag),SENSORDataString);   
           hasActiveTag=0;
@@ -1135,30 +1201,33 @@ void loop(){
           }
         }
         
-        tm_state = 0x2B;
-        SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
+        changeTMState(0x3C);
+        // tm_state = 0x2B;
+        // SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
       }
       
-      else if(tm_state == 0x3D && !IR3_cbuffer_sum && (millis() - door_stop_time[TCdoor] >= wait_delay))
+      else if(tm_state == 0x3D && !IR_middle_csum && (millis() - door_stop_time[TCdoor] >= wait_delay))
         {
         moveDoor(doorMod1,TCdoor,down); //open door
         SENSORDataString = createSENSORDataString("D2", "closing", SENSORDataString); 
-        tm_state = 0x3C;
-        SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
+        changeTMState(0x3C);
+        // tm_state = 0x3C;
+        // SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
         }
       //state 0x3A move towards tc
       if(tm_state == 0x3A && IR2_cbuffer_sum){        
-        
-          tm_state = 0x3B;
+          changeTMState(0x3B);
+          // tm_state = 0x3B;
+          // SENSORDataString = createSENSORDataString("TM",String(  tm_state,HEX),SENSORDataString);
           moveDoor(doorMod1,TCdoor,down); //close door, state = 0x3B after door movement
           SENSORDataString = createSENSORDataString("D2", "closing", SENSORDataString); //maximum logging
-          SENSORDataString = createSENSORDataString("TM",String(  tm_state,HEX),SENSORDataString);
+          
         
 
       }
       //state 0x3B Wait before closing
-            if(tm_state == 0x3B){        
-        if(lastR2Time > door_stop_time[TCdoor]){     
+        else if(tm_state == 0x3B){        
+        //if(lastR2Time > door_stop_time[TCdoor]){     
           copyTags(lastTagSeen2,activeTag);
           
           //for(uint8_t i = 0; i < sizeof(activeTag); i++) activeTag[i] = lastTagSeen2[i]; //copy currenttag to lasttag
@@ -1166,9 +1235,13 @@ void loop(){
           tc_occupied=1;
           
           SENSORDataString = createSENSORDataString("ACTIVE",getID(activeTag),SENSORDataString);   
-          tm_state = 0x3C;
-          SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
-        }
+          SENSORDataString = createSENSORDataString("TM",String(  tm_state,HEX),SENSORDataString);
+          changeTMState(0x3C);
+          // tm_state = 0x3C;
+          // SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
+          lastTCEnterTime=millis();
+          
+        //}
 
       }
     }
@@ -1178,8 +1251,9 @@ void loop(){
     if(tm_state == 0xFA){ //quickly open HCdoor
       moveDoor(doorMod1,HCdoor,up);
       SENSORDataString = createSENSORDataString("D1", "opening FS", SENSORDataString);
-      tm_state = 0xFB;
-      SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
+      changeTMState(0xFB);
+      // tm_state = 0xFB;
+      // SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
     }
     if(tm_state == 0xFB && !door_moving[HCdoor]){ //when HCdoor open, turn on fans
       fan1on = 1;
@@ -1188,14 +1262,16 @@ void loop(){
       digitalWrite(fan2,HIGH);
       SENSORDataString = createSENSORDataString("FAN","fan1 on",SENSORDataString);
       SENSORDataString = createSENSORDataString("FAN","fan2 on",SENSORDataString);
-      tm_state = 0xFC;
-      SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
+      changeTMState(0xFC);
+      // tm_state = 0xFC;
+      // SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
     }
     if(tm_state == 0xFC && !IR_middle_csum && !IR1_cbuffer_sum){ //if middle and front is empty, try closing HCdoor
       moveDoor(doorMod1,HCdoor,down);
       SENSORDataString = createSENSORDataString("D1", "closing FS", SENSORDataString);
-      tm_state = 0xFD;
-      SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
+      changeTMState(0xFD);
+      // tm_state = 0xFD;
+      // SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
     }
     if(tm_state == 0xFD && !door_moving[HCdoor]){ //when door finished moving, turn off fan
       if(!IR_middle_csum){ //make sure a mouse didn't sneak in during door closing
@@ -1205,7 +1281,8 @@ void loop(){
         digitalWrite(fan2,LOW);
         SENSORDataString = createSENSORDataString("FAN","fan1 off",SENSORDataString);
         SENSORDataString = createSENSORDataString("FAN","fan2 off",SENSORDataString);
-        tm_state = tm_state_restart;
+        // tm_state = tm_state_restart;
+        changeTMState(tm_state_restart);
         if(tm_state == 0x1A){
           moveDoor(doorMod1,HCdoor,up);
           SENSORDataString = createSENSORDataString("D1", "opening FS", SENSORDataString);
@@ -1217,26 +1294,28 @@ void loop(){
         }
       }
       else{
-        tm_state = 0xFA; //start again by emptying middle tube
-        SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
+        changeTMState(0xFA);
+        // tm_state = 0xFA; //start again by emptying middle tube
+        // SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
       }
     }
 
     //FAILSAFE blocked HCdoor, empty tube if HCdoor is open for too long
     if((tm_state < 0xFA) && door_moving[HCdoor] && (millis() - door_move_time[HCdoor] >= fan1delay)){
       SENSORDataString = createSENSORDataString("FS1","doorblocked",SENSORDataString);
-      tm_state = 0xFA;
-      SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
+      changeTMState(0xFA);
+      // tm_state = 0xFA;
+      // SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
       tm_state_restart = 0x1A;
       SENSORDataString = createSENSORDataString("TMr",String(tm_state_restart,HEX),SENSORDataString);
     }
-    //FAILSAFE >1 mouse in TC, 1 second minimum to avoid trigger by tail from transitioning mouse
-    if(!tc_occupied && (IR2_cbuffer_sum >= 20)){
-      doublemouseflag = 1;
-      SENSORDataString = createSENSORDataString("FS2","doublemouse",SENSORDataString);
-      tc_occupied = 1;
-      SENSORDataString = createSENSORDataString("TC","occupied FS",SENSORDataString);
-    }
+    // //FAILSAFE >1 mouse in TC, 1 second minimum to avoid trigger by tail from transitioning mouse
+    // if(!tc_occupied && (IR2_cbuffer_sum >= 20)){
+    //   doublemouseflag = 1;
+    //   SENSORDataString = createSENSORDataString("FS2","doublemouse",SENSORDataString);
+    //   tc_occupied = 1;
+    //   SENSORDataString = createSENSORDataString("TC","occupied FS",SENSORDataString);
+    // }
   } //end habituation phase 4
   
   //----------------------------------------------------------------------------
@@ -1697,6 +1776,38 @@ void confirm(){
   }
 }
 
+uint8_t getNBButton(){
+  int16_t input = analogRead(buttons);
+  static uint8_t last=0;
+  static uint8_t now=0;
+  #ifdef SERIAL_TUNING
+        if(Serial.available())
+        {
+        char inp[5];
+        Serial.readBytes(inp,1);
+        return (atoi(&inp[0]));
+        }
+  #endif
+
+  if(input <= 150) now= 1;
+  else if(input > 150 && input <= 450)now=2;
+  else if(input > 450 && input <= 850) now= 3;
+  else if (input > 850) now =0;
+  //Serial.printf("L:%d N:%d I:%d",last,now,input);
+  if(last==now) return(0);
+  delayMicroseconds(100);
+  int16_t inputCheck = analogRead(buttons);
+  uint8_t now2;
+  if(inputCheck <= 150) now2= 1;
+  else if(inputCheck > 150 && inputCheck <= 450)now2=2;
+  else if(inputCheck > 450 && inputCheck <= 850) now2= 3;
+  else if (inputCheck > 850) now2 =0;
+  if(now2!=now) return(0);
+  Serial.printf("L:%d N:%d N2:%d I:%d IC:%d\n",last,now,now2,input,inputCheck);
+  last=now;
+  return(now);
+}
+
 //waits and returns which button (1,2,3) was pressed ---------------------------
 uint8_t getButton(){
   uint16_t input = 1023;
@@ -1735,11 +1846,30 @@ bool startPhase5()
   {
      SENSORDataString = createSENSORDataString("Phase 5","Order Not Found",SENSORDataString);
   }
-      dataFile.println(SENSORDataString); //append Datastring to file
+    printToDataFile(SENSORDataString);
+    // dataFile.println(SENSORDataString); //append Datastring to file
+    // dataFile.flush();
+    // dataFileBackup.println(SENSORDataString);
+    // dataFileBackup.flush();
+    // if(is_testing == 1) Serial.println(SENSORDataString); //print to serial if in testmode
+}
+
+//print string to data File
+
+static void changeTMState(uint16_t newState)
+{
+  tm_state = newState;
+  String text;
+   text=createSENSORDataString("TM",String(tm_state,HEX),text);
+   printToDataFile(text);
+}
+static void printToDataFile(String text)
+{
+    dataFile.println(text); //append Datastring to file
     dataFile.flush();
-    dataFileBackup.println(SENSORDataString);
+    dataFileBackup.println(text);
     dataFileBackup.flush();
-    if(is_testing == 1) Serial.println(SENSORDataString); //print to serial if in testmode
+    if(is_testing == 1) Serial.println(text); //print to serial if in testmode
 }
 
 // Fills 'out' with zero-padded decimal of 'val' using 'digits' characters
