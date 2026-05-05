@@ -1015,8 +1015,8 @@ void loop(){
       }
       else if(((tm_state == 0x10)) && IR_middle_csum){
         
-        SENSORDataString = changeTMState(0xFA,SENSORDataString);
-        tm_state_restart = 0x10;
+        SENSORDataString = changeTMState(0x2A,SENSORDataString);
+        //tm_state_restart = 0x10;
         //tc_occupied=0;
       }
       //state 0x10 Both Doors Closed
@@ -1075,13 +1075,12 @@ void loop(){
         }
       }
             //state 0x1C wait after door close
-      if(tm_state == 0x1C){
+      else if(tm_state == 0x1C){
         if(millis() - door_stop_time[HCdoor] >= transition_delay)
         {
           SENSORDataString = changeTMState(0x10,SENSORDataString);
         }
-        else if(IR_middle_csum)
-        {SENSORDataString = changeTMState(0xFA,SENSORDataString);}
+        
       }
     }
     //--- state 2 - D1 closed, D2 closed, mouse is in middle and transitions towards hc or tc
