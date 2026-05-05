@@ -689,10 +689,10 @@ void loop(){
     if(sb >= buffer_reads) sb = 0;
 
     //debug only, print buffer (all)
-    static uint32_t buffer=IR1_cbuffer_sum + IR2_cbuffer_sum + IR3_cbuffer_sum + IR4_cbuffer_sum;
-    if(buffer!=lastIRBBuffer && ((buffer) > 0)){
+   uint32_t buffer=IR1_cbuffer_sum + IR2_cbuffer_sum + IR3_cbuffer_sum + IR4_cbuffer_sum;
+    if(((buffer) > 0)){
       if((debug>=1)){
-        buffer=lastIRBBuffer;
+        lastIRBBuffer=buffer;
         SENSORDataString=createSENSORDataString("IRB",String(IR1_cbuffer_sum)+"|"+String(IR2_cbuffer_sum)+":"+String(IR3_cbuffer_sum)+"-"+String(IR4_cbuffer_sum)+":"+String(IR34_cbuffer_sum),SENSORDataString);
         Serial.println(String(IR1_cbuffer_sum)+"|"+String(IR2_cbuffer_sum)+":"+String(IR3_cbuffer_sum)+"-"+String(IR4_cbuffer_sum)+":"+String(IR34_cbuffer_sum));
       }
@@ -989,7 +989,7 @@ void loop(){
     //--- state 1 - D1 open, D2 closed, mouse can enter towards tc, or leave towards hc
     if(!door_moving[HCdoor] && !door_moving[TCdoor]){ //advance transitionmanagement only when doors are not moving
       //if failsave for double mouse triggered
-      if(lastTCEnterTime && (millis()-lastTCEnterTime)>2*60*60*1000)
+      if(lastTCEnterTime && (millis()-lastTCEnterTime)>30*60*1000)
       {
         //tm_state=0x10;
         SENSORDataString = changeTMState(0x10,SENSORDataString);
@@ -1059,20 +1059,29 @@ void loop(){
       {
         moveDoor(doorMod1,HCdoor,down); //close door
         SENSORDataString = createSENSORDataString("D1", "closing", SENSORDataString);
-        SENSORDataString = changeTMState(0x1A,SENSORDataString);
+        SENSORDataString = changeTMState(0x10,SENSORDataString);
         //tm_state = 0x10;
         //SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
       }
 
       //state 0x1B move towards hc
       if(tm_state == 0x1B){
-        if(IR1_cbuffer_sum){
+        if(!IR_middle_csum){
           SENSORDataString = createSENSORDataString("D1", "closing", SENSORDataString);
           moveDoor(doorMod1,HCdoor,down); //close door
-          SENSORDataString = changeTMState(0x10,SENSORDataString);
+          SENSORDataString = changeTMState(0x1C,SENSORDataString);
           // tm_state = 0x10;
           // SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString); //HCdoor is kept open to allow mouse to exit
         }
+      }
+            //state 0x1C wait after door close
+      if(tm_state == 0x1C){
+        if(millis() - door_stop_time[HCdoor] >= transition_delay)
+        {
+          SENSORDataString = changeTMState(0x10,SENSORDataString);
+        }
+        else if(IR_middle_csum)
+        {SENSORDataString = changeTMState(0xFA,SENSORDataString);}
       }
     }
     //--- state 2 - D1 closed, D2 closed, mouse is in middle and transitions towards hc or tc
@@ -1089,7 +1098,7 @@ void loop(){
           }
           else{ //check multimice/mouse ident that requires clearing of middle
             uint8_t go = 1;
-            if(IR34_cbuffer_sum >= buffer_reads*2){ //all IRs in the middle are triggered
+            if(IR34_cbuffer_sum >= buffer_reads){ //all IRs in the middle are triggered
               go = 0; //multimice detection
               SENSORDataString = createSENSORDataString("MM","multimice",SENSORDataString);
             }
@@ -1268,7 +1277,7 @@ void loop(){
       // tm_state = 0xFC;
       // SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
     }
-    if(tm_state == 0xFC && !IR_middle_csum && !IR1_cbuffer_sum){ //if middle and front is empty, try closing HCdoor
+    if(tm_state == 0xFC && !IR_middle_csum){
       moveDoor(doorMod1,HCdoor,down);
       SENSORDataString = createSENSORDataString("D1", "closing FS", SENSORDataString);
       SENSORDataString = changeTMState(0xFD,SENSORDataString);
@@ -1308,7 +1317,7 @@ void loop(){
       SENSORDataString = changeTMState(0xFA,SENSORDataString);
       // tm_state = 0xFA;
       // SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
-      tm_state_restart = 0x1A;
+      tm_state_restart = 0x10;
       SENSORDataString = createSENSORDataString("TMr",String(tm_state_restart,HEX),SENSORDataString);
     }
     // //FAILSAFE >1 mouse in TC, 1 second minimum to avoid trigger by tail from transitioning mouse
@@ -1858,12 +1867,12 @@ bool startPhase5()
 
 //print string to data File
 
-String changeTMState(uint16_t newState,String dataString)
+String changeTMState(uint8_t newState,String dataString)
 
 {
   tm_state = newState;
    dataString=createSENSORDataString("TM",String(tm_state,HEX),dataString);
-   
+   return dataString;
 }
 static void printToDataFile(String text)
 {
