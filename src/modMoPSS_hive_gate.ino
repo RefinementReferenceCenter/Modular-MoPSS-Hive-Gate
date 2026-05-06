@@ -1124,29 +1124,51 @@ void loop(){
         }
       }
       //state 0x2B transit towards hc
-      if(tm_state == 0x2B){
-        if(IR_middle_csum)
-        
+      if (tm_state == 0x2B)
+      {
+        if (IR_middle_csum)
+
         {
-            moveDoor(doorMod1,HCdoor,up); //open door
-            
-            SENSORDataString = createSENSORDataString("D1", "opening", SENSORDataString);
-            if(!hasActiveTag)
+          moveDoor(doorMod1, HCdoor, up); //open door
+
+          SENSORDataString = createSENSORDataString("D1", "opening", SENSORDataString);
+          String idLast = getID(lastTagSeen2);
+          String idActive = getID(activeTag);
+          SENSORDataString = createSENSORDataString("RETURN", idLast, SENSORDataString);
+          if (hasActiveTag && compareTags(lastTagSeen2, activeTag))
+          {
+            SENSORDataString = createSENSORDataString("MISMATCH", idActive, SENSORDataString);
+          }
+          else if (hasActiveTag && !compareTags(lastTagSeen2, activeTag))
+          {
+            SENSORDataString = createSENSORDataString("MATCH", idActive, SENSORDataString);
+            hasActiveTag = 0;
+            if (habituation_phase == 5)
             {
-            SENSORDataString = changeTMState(0x1B,SENSORDataString);
-            lastTCEnterTime=0;
+              activeTagNumber = activeTagNumber + 1;
+              if (activeTagNumber > 4)
+              {
+                habituation_phase = 4;
+              }
+            }
+          }
+          if (!hasActiveTag)
+          {
+            SENSORDataString = changeTMState(0x1B, SENSORDataString);
+            lastTCEnterTime = 0;
             // tm_state = 0x1B;
             // SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
 
             tc_occupied = 0;
-            SENSORDataString = createSENSORDataString("TC","empty",SENSORDataString); //testcage is no longer occupied
-            }
-            else {
-            SENSORDataString = changeTMState(0x4A,SENSORDataString);
+            SENSORDataString = createSENSORDataString("TC", "empty", SENSORDataString); //testcage is no longer occupied
+          }
+          else
+          {
+            SENSORDataString = changeTMState(0x4A, SENSORDataString);
             tc_occupied = 1;
             // tm_state = 0x4A;
             // SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
-            }
+          }
         }
         else if(millis() - door_stop_time[TCdoor] >= wait_delay){
         
@@ -1156,7 +1178,6 @@ void loop(){
             // tm_state = 0x3C;
             // SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
           }
-        
       }
     }
     //--- state 3 - D1 closed, D2 closed, mouse can leave towards tc, or enter from tc
@@ -1189,27 +1210,7 @@ void loop(){
       {
                 moveDoor(doorMod1,TCdoor,down); //open door
         SENSORDataString = createSENSORDataString("D2", "closing", SENSORDataString); 
-        String idLast=getID(lastTagSeen2);
-        String idActive=getID(activeTag);
-        SENSORDataString = createSENSORDataString("RETURN",idLast,SENSORDataString);  
-         
-        if(hasActiveTag && compareTags(lastTagSeen2,activeTag))
-          {
-          SENSORDataString = createSENSORDataString("MISMATCH",idActive,SENSORDataString);   
-          }
-        else if(hasActiveTag && !compareTags(lastTagSeen2,activeTag))
-        {
-          SENSORDataString = createSENSORDataString("MATCH",idActive,SENSORDataString);   
-          hasActiveTag=0;
-          if(habituation_phase == 5)
-          {
-            activeTagNumber=activeTagNumber+1;
-            if(activeTagNumber>4)
-            {
-              habituation_phase=4;
-            }
-          }
-        }
+        
         
         SENSORDataString = changeTMState(0x2B,SENSORDataString);
         // tm_state = 0x2B;
