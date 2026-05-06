@@ -1097,7 +1097,7 @@ void loop(){
           }
           else{ //check multimice/mouse ident that requires clearing of middle
             uint8_t go = 1;
-            if(IR34_cbuffer_sum >= buffer_reads){ //all IRs in the middle are triggered
+            if(IR34_cbuffer_sum >= buffer_reads/2){ //all IRs in the middle are triggered
               go = 0; //multimice detection
               SENSORDataString = createSENSORDataString("MM","multimice",SENSORDataString);
             }
