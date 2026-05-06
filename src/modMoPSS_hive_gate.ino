@@ -987,6 +987,16 @@ void loop(){
     //   }   
     // }
     //--- state 1 - D1 open, D2 closed, mouse can enter towards tc, or leave towards hc
+    if (tm_state==0x3C && hasActiveTag && tag1_present)
+    {
+      if(compareTags(activeTag,currenttag1))
+      {
+        hasActiveTag=0;
+        SENSORDataString = changeTMState(0x10,SENSORDataString);
+        SENSORDataString = createSENSORDataString("TM", "Mouse Wrong Side", SENSORDataString);      
+        lastTCEnterTime=0;
+      }
+    }
     if(!door_moving[HCdoor] && !door_moving[TCdoor]){ //advance transitionmanagement only when doors are not moving
       //if failsave for double mouse triggered
       if(lastTCEnterTime && (millis()-lastTCEnterTime)>30*60*1000)
