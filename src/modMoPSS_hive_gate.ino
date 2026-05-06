@@ -239,7 +239,7 @@ uint16_t transition_delay = 2000; //ms
 uint16_t wait_delay = 10000; //ms
 
 //time until fan1 is turned on
-const uint16_t fan1delay = 10000; //ms door 1 open and until fan1 is turned on
+const uint16_t fan1delay = 20000; //ms door 1 open and until fan1 is turned on
 
 
 //##############################################################################
