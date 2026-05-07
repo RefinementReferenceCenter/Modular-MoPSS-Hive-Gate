@@ -995,6 +995,7 @@ void loop(){
         SENSORDataString = changeTMState(0x10,SENSORDataString);
         SENSORDataString = createSENSORDataString("TM", "Mouse Wrong Side", SENSORDataString);      
         lastTCEnterTime=0;
+        tc_occupied=0;
       }
     }
     if(!door_moving[HCdoor] && !door_moving[TCdoor]){ //advance transitionmanagement only when doors are not moving
@@ -1236,25 +1237,26 @@ void loop(){
         // SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
         }
       //state 0x3A move towards tc
-      if(tm_state == 0x3A && IR2_cbuffer_sum){        
-          SENSORDataString = changeTMState(0x3B,SENSORDataString);
-          // tm_state = 0x3B;
-          // SENSORDataString = createSENSORDataString("TM",String(  tm_state,HEX),SENSORDataString);
-          moveDoor(doorMod1,TCdoor,down); //close door, state = 0x3B after door movement
-          SENSORDataString = createSENSORDataString("D2", "closing", SENSORDataString); //maximum logging
+      // if(tm_state == 0x3A && IR2_cbuffer_sum){        
+      //     SENSORDataString = changeTMState(0x3B,SENSORDataString);
+      //     // tm_state = 0x3B;
+      //     // SENSORDataString = createSENSORDataString("TM",String(  tm_state,HEX),SENSORDataString);
+      //     moveDoor(doorMod1,TCdoor,down); //close door, state = 0x3B after door movement
+      //     SENSORDataString = createSENSORDataString("D2", "closing", SENSORDataString); //maximum logging
           
         
 
-      }
+      // }
       //state 0x3B Wait before closing
-        if(tm_state == 0x3B && tag2_present){        
+        if(tm_state == 0x3A && tag2_present){        
         //if(lastR2Time > door_stop_time[TCdoor]){     
           copyTags(lastTagSeen2,activeTag);
           
           //for(uint8_t i = 0; i < sizeof(activeTag); i++) activeTag[i] = lastTagSeen2[i]; //copy currenttag to lasttag
           hasActiveTag=1;
           tc_occupied=1;
-          
+          moveDoor(doorMod1,TCdoor,down); //close door, state = 0x3B after door movement
+          SENSORDataString = createSENSORDataString("D2", "closing", SENSORDataString); //maximum logging
           SENSORDataString = createSENSORDataString("ACTIVE",getID(activeTag),SENSORDataString);   
           SENSORDataString = createSENSORDataString("TM",String(  tm_state,HEX),SENSORDataString);
           SENSORDataString = changeTMState(0x3C,SENSORDataString);
