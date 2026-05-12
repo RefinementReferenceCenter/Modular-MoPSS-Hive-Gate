@@ -41,6 +41,20 @@ m  g   |     |I|    | | | O |   | |   | |   | O | | |    |I|     |    s  g
 e  e ––|–––––|D|––––| |-| O |–––| |---| |---| O |–| |––––|D|–––––|––  t  e
        |     |1|    |1| | R |   |3|   |4|   | R | |2|    |2|     |
        |                                                         |
+_______/                  |-----   X cm  -----|                  \________#
+
+
+
+--- Experimental Setup Phase 4---
+
+^^^^^^^\                                                         /^^^^^^^^
+       |                  H                   T                  |
+h  c   |     |R|    |I| | C |   |I|  |R|   |I|   | C | |I|         |    t  c
+o  a ––|–––––|F|––––|R|–| D |–––|R|--|F|---|R|---| D |–|R|––––-––––|––  e  a
+m  g   |     |I|    | | | O |   | |  |I|   | |   | O | | |         |    s  g
+e  e ––|–––––|D|––––| |-| O |–––| |--|D|---| |---| O |–| |–––––––––|––  t  e
+       |     |1|    |1| | R |   |3|  |2|   |4|   | R | |2|         |
+       |                                                         |
 _______/                  |-----   X cm  -----|                  \________
 
 *///----------------------------------------------------------------------------
@@ -166,6 +180,7 @@ uint8_t lastTagSeen2[6] = {};
 long lastR1Time=0; // time in millis the last actual tag was seen
 long lastR2Time=0;
 long lastTCEnterTime=0;
+long lastPhaseChange=0;
 
 uint8_t activeTag[6] = {};
 bool hasActiveTag=0;
@@ -970,6 +985,19 @@ void loop(){
   //----------------------------------------------------------------------------
   if(habituation_phase == 4 || habituation_phase == 5){
     
+    if(lastPhaseChange && (millis()-lastPhaseChange)>60*60*1000)
+      {
+        //tm_state=0x10;
+        SENSORDataString = changeTMState(0x10,SENSORDataString);
+        moveDoor(doorMod1,HCdoor,down); //open door
+        SENSORDataString = createSENSORDataString("D1", "closing", SENSORDataString);      
+        moveDoor(doorMod1,TCdoor,down); //open door
+        SENSORDataString = createSENSORDataString("D2", "closing", SENSORDataString);      
+        hasActiveTag=0;
+        lastTCEnterTime=0;
+        //SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
+        SENSORDataString = createSENSORDataString("TM","Reset Phase Change Timeout",SENSORDataString);
+      }
     // if(!door_moving[HCdoor] && !door_moving[TCdoor] && tm_state == 0x10 ){ 
 
     //   if(!phase5Triggered && (habituation_phase == 4) && (hour()>=phase5Start) && (hour()<phase5End))
@@ -1248,7 +1276,7 @@ void loop(){
 
       // }
       //state 0x3B Wait before closing
-        if(tm_state == 0x3A && tag2_present){        
+        if(tm_state == 0x3A && !IR_middle_csum && !IR2_cbuffer_sum){        
         //if(lastR2Time > door_stop_time[TCdoor]){     
           copyTags(lastTagSeen2,activeTag);
           
@@ -1332,6 +1360,7 @@ void loop(){
       tm_state_restart = 0x10;
       SENSORDataString = createSENSORDataString("TMr",String(tm_state_restart,HEX),SENSORDataString);
     }
+    
     // //FAILSAFE >1 mouse in TC, 1 second minimum to avoid trigger by tail from transitioning mouse
     // if(!tc_occupied && (IR2_cbuffer_sum >= 20)){
     //   doublemouseflag = 1;
@@ -1885,6 +1914,7 @@ String changeTMState(uint8_t newState,String dataString)
   tm_state = newState;
    dataString=createSENSORDataString("TM",String(tm_state,HEX),dataString);
    return dataString;
+   lastPhaseChange=millis();
 }
 static void printToDataFile(String text)
 {
