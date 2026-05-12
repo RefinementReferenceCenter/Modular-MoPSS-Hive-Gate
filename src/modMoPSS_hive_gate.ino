@@ -985,18 +985,16 @@ void loop(){
   //----------------------------------------------------------------------------
   if(habituation_phase == 4 || habituation_phase == 5){
     
-    if(lastPhaseChange && (millis()-lastPhaseChange)>60*60*1000)
+    if(tm_state != 0x10 && (millis()-lastPhaseChange)>60*60*1000)
       {
         //tm_state=0x10;
-        SENSORDataString = changeTMState(0x10,SENSORDataString);
-        moveDoor(doorMod1,HCdoor,down); //open door
-        SENSORDataString = createSENSORDataString("D1", "closing", SENSORDataString);      
-        moveDoor(doorMod1,TCdoor,down); //open door
-        SENSORDataString = createSENSORDataString("D2", "closing", SENSORDataString);      
+        SENSORDataString = changeTMState(0xFA,SENSORDataString);
         hasActiveTag=0;
         lastTCEnterTime=0;
         //SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
         SENSORDataString = createSENSORDataString("TM","Reset Phase Change Timeout",SENSORDataString);
+        tm_state_restart = 0x10;
+        SENSORDataString = createSENSORDataString("TMr",String(tm_state_restart,HEX),SENSORDataString);
       }
     // if(!door_moving[HCdoor] && !door_moving[TCdoor] && tm_state == 0x10 ){ 
 
