@@ -255,7 +255,7 @@ uint16_t wait_delay = 10000; //ms
 
 //time until fan1 is turned on
 const uint16_t fan1delay = 20000; //ms door 1 open and until fan1 is turned on
-
+String idActive;
 
 //##############################################################################
 //#####   S E T U P   ##########################################################
@@ -1060,26 +1060,26 @@ void loop(){
       }
       //state 0x10 Both Doors Closed
       if((tm_state == 0x10) && IR1_cbuffer_sum){
-       if (habituation_phase == 4){
-        moveDoor(doorMod1,HCdoor,up); //open door
-        SENSORDataString = createSENSORDataString("D1", "opening", SENSORDataString);
-        
-        SENSORDataString = changeTMState(0x1A,SENSORDataString);
-        //tm_state = 0x1A;
-        //SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
-       }
-       else if(habituation_phase == 5){
-        //check if we have the mouse we want
-        if (tagsOrder[activeTagNumber]==lastXDigits(getID64(lastTagSeen1), 4))
-        {
-          copyTags(lastTagSeen1,activeTag);
-          //for(uint8_t i = 0; i < sizeof(activeTag); i++) activeTag[i] = lastTagSeen1[i]; //copy currenttag to lasttag
-        moveDoor(doorMod1,HCdoor,up); //open door
-        SENSORDataString = createSENSORDataString("D1", "opening", SENSORDataString);      
-        SENSORDataString = changeTMState(0x1A,SENSORDataString);
-        //SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
+        if (habituation_phase == 4){
+          moveDoor(doorMod1,HCdoor,up); //open door
+          SENSORDataString = createSENSORDataString("D1", "opening", SENSORDataString);
+          
+          SENSORDataString = changeTMState(0x1A,SENSORDataString);
+          //tm_state = 0x1A;
+          //SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
         }
-        }
+        else if(habituation_phase == 5){
+          //check if we have the mouse we want
+          if (tagsOrder[activeTagNumber]==lastXDigits(getID64(lastTagSeen1), 4))
+          {
+            copyTags(lastTagSeen1,activeTag);
+            //for(uint8_t i = 0; i < sizeof(activeTag); i++) activeTag[i] = lastTagSeen1[i]; //copy currenttag to lasttag
+          moveDoor(doorMod1,HCdoor,up); //open door
+          SENSORDataString = createSENSORDataString("D1", "opening", SENSORDataString);      
+          SENSORDataString = changeTMState(0x1A,SENSORDataString);
+          //SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
+          }
+          }
       }
       //state 0x1A move towards tc
       if((tm_state == 0x1A) && IR_middle_csum){
@@ -1140,7 +1140,15 @@ void loop(){
               go = 0; //multimice detection
               SENSORDataString = createSENSORDataString("MM","multimice",SENSORDataString);
             }
-            if(doublemouseflag) go = 0; //treat double mouse same as multimice with different restart state
+            if (go && habituation_phase ==5 )
+            {
+                      if (tagsOrder[activeTagNumber]!=lastXDigits(getID64(lastTagSeen2), 4))
+                  {
+                     go = 0; //multimice detection
+                    SENSORDataString = createSENSORDataString("WM","Wrong Mouse",SENSORDataString);
+                  }
+            }
+              if(doublemouseflag) go = 0; //treat double mouse same as multimice with different restart state
             //if(!mouse_ident) go = 0;
             if(go){
               moveDoor(doorMod1,TCdoor,up); //open door
@@ -1154,7 +1162,8 @@ void loop(){
               //for(uint8_t i = 0; i < sizeof(activeTag); i++) activeTag[i] = lastTagSeen2[i]; //copy currenttag to lasttag
               hasActiveTag=1;
               tc_occupied=1;
-              SENSORDataString = createSENSORDataString("ACTIVE",getID(activeTag),SENSORDataString);   
+              idActive = getID(activeTag);
+              SENSORDataString = createSENSORDataString("ACTIVE",idActive,SENSORDataString);   
             }
             else{
               SENSORDataString = changeTMState(0xFA,SENSORDataString);
@@ -1177,7 +1186,7 @@ void loop(){
 
           SENSORDataString = createSENSORDataString("D1", "opening", SENSORDataString);
           String idLast = getID(lastTagSeen2);
-          String idActive = getID(activeTag);
+          idActive = getID(activeTag);
           SENSORDataString = createSENSORDataString("RETURN", idLast, SENSORDataString);
           if (hasActiveTag && compareTags(lastTagSeen2, activeTag))
           {
