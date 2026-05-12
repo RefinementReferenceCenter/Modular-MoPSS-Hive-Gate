@@ -1150,6 +1150,11 @@ void loop(){
               // SENSORDataString = createSENSORDataString("TM",String(tm_state,HEX),SENSORDataString);
               tc_occupied = 1;
               SENSORDataString = createSENSORDataString("TC","occupied",SENSORDataString); //testcage is now occupied
+              copyTags(lastTagSeen2,activeTag);          
+              //for(uint8_t i = 0; i < sizeof(activeTag); i++) activeTag[i] = lastTagSeen2[i]; //copy currenttag to lasttag
+              hasActiveTag=1;
+              tc_occupied=1;
+              SENSORDataString = createSENSORDataString("ACTIVE",getID(activeTag),SENSORDataString);   
             }
             else{
               SENSORDataString = changeTMState(0xFA,SENSORDataString);
@@ -1278,14 +1283,10 @@ void loop(){
       //state 0x3B Wait before closing
         if(tm_state == 0x3A && !IR_middle_csum && !IR2_cbuffer_sum){        
         //if(lastR2Time > door_stop_time[TCdoor]){     
-          copyTags(lastTagSeen2,activeTag);
           
-          //for(uint8_t i = 0; i < sizeof(activeTag); i++) activeTag[i] = lastTagSeen2[i]; //copy currenttag to lasttag
-          hasActiveTag=1;
-          tc_occupied=1;
           moveDoor(doorMod1,TCdoor,down); //close door, state = 0x3B after door movement
           SENSORDataString = createSENSORDataString("D2", "closing", SENSORDataString); //maximum logging
-          SENSORDataString = createSENSORDataString("ACTIVE",getID(activeTag),SENSORDataString);   
+          
           SENSORDataString = createSENSORDataString("TM",String(  tm_state,HEX),SENSORDataString);
           SENSORDataString = changeTMState(0x3C,SENSORDataString);
           // tm_state = 0x3C;
