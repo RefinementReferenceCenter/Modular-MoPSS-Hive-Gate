@@ -532,6 +532,8 @@ void setup(){
 
     tm_state = 0x10;  //start in state 10
   }
+
+  lastPhaseChange=millis();
 } //end of setup
 
 //##############################################################################
